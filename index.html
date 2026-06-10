@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Convergent Margin Explorer</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="trench-scene" aria-label="Interactive 3D ocean trench formation explorer"></canvas>
+      <section class="hud" aria-label="Oceanic trench data dashboard">
+        <div class="hud__title">
+          <p>Oceanic trench formation</p>
+          <h1>Convergent Margin Explorer</h1>
+        </div>
+        <div class="hud__metrics">
+          <article>
+            <span>Max depth</span>
+            <strong id="metric-depth">7.0 km</strong>
+          </article>
+          <article>
+            <span>Convergence</span>
+            <strong id="metric-convergence">78 mm/yr</strong>
+          </article>
+          <article>
+            <span>Age contrast</span>
+            <strong id="metric-age">142 Myr</strong>
+          </article>
+        </div>
+        <div class="hud__nav" aria-label="Exploration mode">
+          <button class="hud__nav-button hud__nav-button--active" type="button" data-view="overview">Overview</button>
+          <button class="hud__nav-button" type="button" data-view="descent">Descent</button>
+          <button class="hud__nav-button" type="button" data-view="trench">Basin floor</button>
+        </div>
+        <div class="hud__legend">
+          <div><i class="swatch swatch--heat"></i> Heat flow</div>
+          <div><i class="swatch swatch--quakes"></i> Earthquakes</div>
+          <div><i class="swatch swatch--age"></i> Plate age stripes</div>
+          <div><i class="swatch swatch--motion"></i> Plate motion</div>
+          <div><i class="swatch swatch--currents"></i> Water currents</div>
+          <div><i class="swatch swatch--sonar"></i> Thermocline sonar</div>
+          <div><i class="swatch swatch--vents"></i> Vent fields</div>
+          <div><i class="swatch swatch--contours"></i> Depth contours</div>
+        </div>
+      </section>
+      <section class="readout" aria-live="polite">
+        <h2 id="readout-title">Subduction geometry</h2>
+        <p id="readout-body">Drag to orbit the model. Scroll to dive from abyssal plain to deep basin and volcanic arc.</p>
+      </section>
+      <div class="loading" id="loading">forming trench...</div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
