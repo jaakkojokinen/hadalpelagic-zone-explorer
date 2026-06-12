@@ -23,6 +23,7 @@ const bathymetryStops = [
 
 const CRITTER_DEPTH_THRESHOLD_KM = 8;
 const CRITTER_APPEAR_DELAY_SECONDS = 2.6;
+const FORMATION_SCALE = 0.5;
 
 function effectiveTrenchDepth(settings) {
   return settings.trenchDepth * settings.verticalExaggeration;
@@ -142,8 +143,6 @@ export function createTrenchScene(canvas, hud) {
   group.add(mirrorBall);
   const particulates = makeMarineSnow();
   scene.add(particulates);
-  const labels = makeSectionMarkers();
-  group.add(labels);
 
   const ambient = new THREE.HemisphereLight(0xaed9ff, 0x102128, 1.7);
   scene.add(ambient);
@@ -495,7 +494,6 @@ function makeTrenchFormations(settings) {
   const talusMaterial = new THREE.MeshStandardMaterial({ color: 0x293e40, roughness: 0.9 });
   const fanMaterial = new THREE.MeshStandardMaterial({ color: 0x9a8d73, roughness: 0.86, transparent: true, opacity: 0.72 });
   const ventMaterial = new THREE.MeshStandardMaterial({ color: 0x1f2d32, roughness: 0.78, metalness: 0.08 });
-  const glowMaterial = new THREE.MeshBasicMaterial({ color: 0x6ff6ff, transparent: true, opacity: 0.42, depthWrite: false });
 
   for (let i = 0; i < 18; i += 1) {
     const z = -23 + i * 2.7;
@@ -526,9 +524,7 @@ function makeTrenchFormations(settings) {
   for (let i = 0; i < 8; i += 1) {
     const vent = new THREE.Group();
     const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.24, 0.9 + (i % 3) * 0.18, 9), ventMaterial.clone());
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.38, 16, 12), glowMaterial.clone());
-    glow.position.y = 0.54;
-    vent.add(chimney, glow);
+    vent.add(chimney);
     vent.userData = { kind: 'vent', z: -18 + i * 4.8, xOffset: -2.2 + Math.sin(i * 1.7) * 3.2, phase: i * 0.53, densityRank: rankedNoise(i, 0.91) };
     group.add(vent);
   }
@@ -546,18 +542,22 @@ function updateTrenchFormations(group, settings) {
     object.position.set(x, floorY + 0.12, z);
 
     if (kind === 'scarp') {
-      object.position.y += 0.72;
+      object.position.y += 0.72 * FORMATION_SCALE;
       object.rotation.set(0.28, 0.12 + z * 0.015, roll);
+      object.scale.setScalar(FORMATION_SCALE);
     } else if (kind === 'fan') {
-      object.position.y += 0.04;
+      object.position.y += 0.04 * FORMATION_SCALE;
       object.rotation.set(-Math.PI / 2, 0, -0.7 + z * 0.03);
-      object.scale.set(1.45, 0.82, 1);
+      object.scale.set(1.45 * FORMATION_SCALE, 0.82 * FORMATION_SCALE, FORMATION_SCALE);
     } else if (kind === 'vent') {
-      object.position.y += 0.45;
+      object.position.y += 0.45 * FORMATION_SCALE;
       object.rotation.set(0, z * 0.05, 0);
+      object.userData.baseRotationY = object.rotation.y;
+      object.scale.setScalar(FORMATION_SCALE);
     } else {
-      object.position.y += 0.22;
+      object.position.y += 0.22 * FORMATION_SCALE;
       object.rotation.set(object.userData.spin, z * 0.03, object.userData.spin * 0.6);
+      object.scale.setScalar(FORMATION_SCALE);
     }
   });
 }
@@ -570,10 +570,7 @@ function rankedNoise(index, salt) {
 function animateTrenchFormations(group, elapsed) {
   group.children.forEach((object) => {
     if (!object.visible || object.userData.kind !== 'vent') return;
-    const glow = object.children[1];
-    const pulse = 1 + Math.sin(elapsed * 2.1 + object.userData.phase) * 0.16;
-    glow.scale.setScalar(pulse);
-    glow.material.opacity = 0.28 + pulse * 0.12;
+    object.rotation.y = object.userData.baseRotationY + Math.sin(elapsed * 0.7 + object.userData.phase) * 0.035;
   });
 }
 
@@ -1324,24 +1321,6 @@ function animatePlumes(group, elapsed) {
     plume.scale.set(s, 1 + (s - 1) * 2, s);
     plume.rotation.y += 0.003;
   });
-}
-
-function makeSectionMarkers() {
-  const group = new THREE.Group();
-  [
-    [-13, -22, 0x7be1ff],
-    [basinCenterX(WORLD.basinZ), WORLD.basinZ, 0xffe66d],
-    [3, -22, 0x99ff9c],
-    [WORLD.arcX, -22, 0xff8a4d],
-  ].forEach(([x, z, color]) => {
-    const marker = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.06, 3.5, 10),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75 }),
-    );
-    marker.position.set(x, 1.8, z);
-    group.add(marker);
-  });
-  return group;
 }
 
 function updateMetrics(settings, hud) {
