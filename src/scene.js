@@ -64,6 +64,10 @@ export function createTrenchScene(canvas, hud) {
     slabDip: 36,
     convergence: 78,
     waterLevel: 0,
+    seaFog: true,
+    fogThickness: 0.85,
+    fogBurnOff: 0,
+    animateFogBurnOff: false,
     quakes: true,
     heatPlumes: true,
     vectors: true,
@@ -93,6 +97,8 @@ export function createTrenchScene(canvas, hud) {
   group.add(contours);
   const water = makeWater(settings);
   group.add(water);
+  const seaFog = makeSeaFog(settings);
+  group.add(seaFog);
   const slab = makeSlab(settings);
   group.add(slab);
   const quakes = makeQuakes();
@@ -154,7 +160,16 @@ export function createTrenchScene(canvas, hud) {
   );
   withTooltip(gui.add(settings, 'waterLevel', -1.5, 1.8, 0.05).name('Sea level').onChange(() => {
     water.position.y = settings.waterLevel;
+    updateSeaFog(seaFog, settings);
   }), 'Moves the transparent water surface up or down.');
+  withTooltip(gui.add(settings, 'seaFog').name('Sea fog').onChange((v) => { seaFog.visible = v; }), 'Shows a cold, saturated marine fog layer riding just above the sea surface.');
+  withTooltip(gui.add(settings, 'fogThickness', 0.05, 2.4, 0.05).name('Fog thickness').onChange(() => {
+    updateSeaFog(seaFog, settings);
+  }), 'Controls the depth of the near-surface fog layer, like a thicker or shallower saturated marine boundary layer.');
+  const fogBurnOffController = withTooltip(gui.add(settings, 'fogBurnOff', 0, 1, 0.01).name('Fog burn-off').onChange(() => {
+    updateSeaFog(seaFog, settings);
+  }), 'Warms and mixes the fog layer so droplets evaporate into broken patches rather than disappearing all at once.');
+  withTooltip(gui.add(settings, 'animateFogBurnOff').name('Animate burn-off'), 'Animates realistic fog dissipation: morning-thick fog becomes patchier as sunlight and turbulent mixing lower relative humidity.');
   withTooltip(gui.add(settings, 'quakes').name('Earthquakes').onChange((v) => { quakes.visible = v; }), 'Shows or hides animated Wadati-Benioff zone earthquake points.');
   withTooltip(gui.add(settings, 'heatPlumes').name('Heat plumes').onChange((v) => { plumes.visible = v; }), 'Shows or hides volcanic-arc heat plume markers.');
   withTooltip(gui.add(settings, 'vectors').name('Plate vectors').onChange((v) => { vectors.visible = v; }), 'Shows or hides convergence direction arrows.');
@@ -232,7 +247,13 @@ export function createTrenchScene(canvas, hud) {
     }
     controls.update();
     water.material.uniforms.uTime.value = elapsed;
+    if (settings.animateFogBurnOff) {
+      settings.fogBurnOff = (Math.sin(elapsed * 0.18 - Math.PI / 2) + 1) * 0.5;
+      fogBurnOffController.updateDisplay();
+      updateSeaFog(seaFog, settings);
+    }
     updateAtmosphere(scene, renderer, ambient, key, rim, trenchLight, camera, settings);
+    animateSeaFog(seaFog, elapsed, settings);
     animateQuakes(quakes, elapsed);
     animatePlumes(plumes, elapsed);
     animateMarineSnow(particulates, camera, elapsed);
@@ -684,6 +705,128 @@ function makeWater() {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.y = 0;
   return mesh;
+}
+
+function makeSeaFog(settings) {
+  const group = new THREE.Group();
+  const geometry = new THREE.PlaneGeometry(WORLD.width * 1.28, WORLD.length * 1.18, 96, 96);
+  geometry.rotateX(-Math.PI / 2);
+
+  for (let i = 0; i < 5; i += 1) {
+    const material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: 0.2 },
+        uBurnOff: { value: settings.fogBurnOff },
+        uLayer: { value: i },
+        uColor: { value: new THREE.Color(i < 2 ? 0xd8eef0 : 0xb7d8dc) },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uLayer;
+
+        void main() {
+          vUv = uv;
+          vec3 p = position;
+          float slow = uTime * (0.08 + uLayer * 0.012);
+          p.y += sin(p.x * 0.28 + slow + uLayer) * 0.035;
+          p.y += cos(p.z * 0.2 - slow * 1.3) * 0.025;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uOpacity;
+        uniform float uBurnOff;
+        uniform float uLayer;
+        uniform vec3 uColor;
+
+        float hash(vec2 p) {
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        float fbm(vec2 p) {
+          float value = 0.0;
+          float amplitude = 0.5;
+          for (int i = 0; i < 5; i++) {
+            value += noise(p) * amplitude;
+            p *= 2.05;
+            amplitude *= 0.52;
+          }
+          return value;
+        }
+
+        void main() {
+          vec2 wind = vec2(uTime * 0.018, -uTime * 0.011);
+          vec2 shear = vec2(uLayer * 0.17, -uLayer * 0.11);
+          float soft = fbm(vUv * 4.2 + wind + shear);
+          float tendrils = fbm(vUv * 12.0 - wind * 2.8 + shear);
+          float body = smoothstep(0.2 + uBurnOff * 0.42, 0.82, soft + tendrils * 0.38);
+          float holes = smoothstep(0.48 - uBurnOff * 0.12, 0.86 - uBurnOff * 0.3, fbm(vUv * 7.0 + wind * 3.1));
+          float edge = smoothstep(0.0, 0.12, vUv.x) * (1.0 - smoothstep(0.88, 1.0, vUv.x));
+          edge *= smoothstep(0.0, 0.12, vUv.y) * (1.0 - smoothstep(0.88, 1.0, vUv.y));
+          float alpha = body * mix(1.0, 1.0 - holes, uBurnOff) * edge * uOpacity;
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
+
+    const layer = new THREE.Mesh(geometry, material);
+    layer.userData = {
+      layerIndex: i,
+      baseOffset: i / 4,
+      driftPhase: i * 0.9,
+    };
+    layer.renderOrder = 4 + i;
+    group.add(layer);
+  }
+
+  group.visible = settings.seaFog;
+  updateSeaFog(group, settings);
+  return group;
+}
+
+function updateSeaFog(group, settings) {
+  group.visible = settings.seaFog;
+  group.children.forEach((layer) => {
+    const layerT = layer.userData.baseOffset;
+    const burnLift = settings.fogBurnOff * (0.08 + layerT * 0.28);
+    const verticalOffset = 0.035 + layerT * settings.fogThickness + burnLift;
+    const density = THREE.MathUtils.smoothstep(settings.fogThickness, 0.05, 1.35);
+    const burnFade = 1 - settings.fogBurnOff * (0.66 + layerT * 0.2);
+    layer.position.y = settings.waterLevel + verticalOffset;
+    layer.scale.setScalar(1 + layerT * 0.08 + settings.fogThickness * 0.025);
+    layer.material.uniforms.uOpacity.value = Math.max(0, density * burnFade * (0.2 - layerT * 0.026));
+    layer.material.uniforms.uBurnOff.value = settings.fogBurnOff;
+  });
+}
+
+function animateSeaFog(group, elapsed, settings) {
+  if (!settings.seaFog) return;
+
+  group.children.forEach((layer) => {
+    layer.material.uniforms.uTime.value = elapsed;
+    layer.position.x = Math.sin(elapsed * 0.035 + layer.userData.driftPhase) * (0.18 + layer.userData.baseOffset * 0.14);
+    layer.position.z = Math.cos(elapsed * 0.028 + layer.userData.driftPhase) * (0.16 + layer.userData.baseOffset * 0.1);
+  });
 }
 
 function makeSlab(settings) {
