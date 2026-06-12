@@ -8,6 +8,10 @@
   <body>
     <main id="app">
       <canvas id="trench-scene" aria-label="Interactive 3D ocean trench formation explorer"></canvas>
+      <aside class="critter-tooltip" id="critter-tooltip" aria-hidden="true">
+        <strong>borrowed light</strong>
+        <span>Vent gases feed chemosynthetic microbes. The critter carries that living chemistry as a faint glow.</span>
+      </aside>
       <section class="hud" aria-label="Oceanic trench data dashboard">
         <div class="hud__title">
           <p>Oceanic trench formation</p>
@@ -106,6 +110,21 @@
       <section class="readout" aria-live="polite">
         <h2 id="readout-title">Subduction geometry</h2>
         <p id="readout-body">Drag to orbit the model. Scroll to dive from abyssal plain to deep basin and volcanic arc.</p>
+      </section>
+      <section class="music-module" id="music-module" aria-label="Native Web Audio step sequencer">
+        <div class="music-module__header">
+          <div>
+            <p>Music module</p>
+            <h2>16-step trench sequencer</h2>
+          </div>
+          <button class="music-module__play" type="button" aria-pressed="false" data-sequencer-play>Play</button>
+        </div>
+        <div class="music-module__tempo">
+          <span>BPM <strong data-sequencer-bpm-value>104</strong></span>
+          <input type="range" min="70" max="156" value="104" step="1" data-sequencer-bpm aria-label="Sequencer tempo" />
+        </div>
+        <div class="sequencer" data-sequencer-grid aria-label="Sequencer tracks"></div>
+        <pre class="sequencer-code" data-sequencer-code aria-label="Programmable sequencer pattern examples"></pre>
       </section>
       <div class="loading" id="loading">forming trench...</div>
     </main>

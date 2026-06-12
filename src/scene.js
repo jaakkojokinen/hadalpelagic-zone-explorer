@@ -104,6 +104,8 @@ export function createTrenchScene(canvas, hud) {
     target: cameraViews.overview.target.clone(),
   };
   let viewTransition = false;
+  const pointer = new THREE.Vector2(2, 2);
+  const raycaster = new THREE.Raycaster();
   const critterReveal = {
     activationStartedAt: null,
     visibleAmount: 0,
@@ -256,6 +258,9 @@ export function createTrenchScene(canvas, hud) {
   resize();
 
   window.addEventListener('resize', resize);
+  canvas.addEventListener('pointermove', updateCritterTooltip);
+  canvas.addEventListener('pointerdown', updateCritterTooltip);
+  canvas.addEventListener('pointerleave', hideCritterTooltip);
 
   let rafId = 0;
   const clock = new THREE.Clock();
@@ -297,10 +302,44 @@ export function createTrenchScene(canvas, hud) {
     dispose() {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
+      canvas.removeEventListener('pointermove', updateCritterTooltip);
+      canvas.removeEventListener('pointerdown', updateCritterTooltip);
+      canvas.removeEventListener('pointerleave', hideCritterTooltip);
       gui.destroy();
       renderer.dispose();
     },
   };
+
+  function updateCritterTooltip(event) {
+    if (!hud.critterTooltip || !critters.visible) {
+      hideCritterTooltip();
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(critters.children.filter((object) => object.userData.isCritter), false);
+
+    if (hits.length === 0 || hits[0].object.material.opacity < 0.08) {
+      hideCritterTooltip();
+      return;
+    }
+
+    const maxLeft = Math.max(12, window.innerWidth - 280);
+    const maxTop = Math.max(72, window.innerHeight - 12);
+    hud.critterTooltip.style.left = `${THREE.MathUtils.clamp(event.clientX, 12, maxLeft)}px`;
+    hud.critterTooltip.style.top = `${THREE.MathUtils.clamp(event.clientY, 72, maxTop)}px`;
+    hud.critterTooltip.classList.add('critter-tooltip--visible');
+    hud.critterTooltip.setAttribute('aria-hidden', 'false');
+  }
+
+  function hideCritterTooltip() {
+    if (!hud.critterTooltip) return;
+    hud.critterTooltip.classList.remove('critter-tooltip--visible');
+    hud.critterTooltip.setAttribute('aria-hidden', 'true');
+  }
 }
 
 function withTooltip(controller, text) {
@@ -620,6 +659,7 @@ function makeBioluminescentCritters(settings) {
       spawnDelay: rankedNoise(i, 0.67) * 4.8,
       baseScale: 0.22 + rankedNoise(i, 0.77) * 0.13,
       facing: rankedNoise(i, 0.87) > 0.5 ? 1 : -1,
+      isCritter: true,
       aura,
     };
     group.add(aura);
