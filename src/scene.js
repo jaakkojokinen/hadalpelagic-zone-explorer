@@ -77,7 +77,7 @@ export function createTrenchScene(canvas, hud) {
 
   const settings = {
     layer: 'bathymetry',
-    trenchDepth: 7,
+    trenchDepth: 10,
     slabDip: 36,
     convergence: 78,
     waterLevel: 0,
@@ -95,7 +95,7 @@ export function createTrenchScene(canvas, hud) {
     formationDensity: 0.5,
     contours: true,
     explorationMode: 'overview',
-    verticalExaggeration: 1.18,
+    verticalExaggeration: 1,
     thermalVents: 0.7,
   };
 
@@ -162,12 +162,12 @@ export function createTrenchScene(canvas, hud) {
     gui.add(settings, 'explorationMode', ['overview', 'trench']).name('Explore').onChange(setView),
     'Moves the camera between overview and basin-floor starting positions without locking exploration.',
   );
-  withTooltip(
+  const surfaceController = withTooltip(
     gui.add(settings, 'layer', ['bathymetry', 'heat', 'age']).name('Surface color').onChange(refresh),
     'Changes the terrain color layer: bathymetric depth, heat flow, or oceanic plate age.',
   );
   withTooltip(
-    gui.add(settings, 'trenchDepth', 4.5, 9, 0.1).name('Max depth').onChange(refreshGeometry),
+    gui.add(settings, 'trenchDepth', 4.5, 10, 0.1).name('Max depth').onChange(refreshGeometry),
     'Deepens or shallows the basin in physical kilometers; depth contours rescale from this value.',
   );
   withTooltip(
@@ -227,6 +227,7 @@ export function createTrenchScene(canvas, hud) {
     const [title, body] = layerText[settings.layer];
     hud.title.textContent = title;
     hud.body.textContent = body;
+    addTooltip(surfaceController.domElement, `${title}: ${body}`);
   }
 
   function setView(viewName) {
