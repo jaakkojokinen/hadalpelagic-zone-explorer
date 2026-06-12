@@ -8,7 +8,8 @@ export const DEFAULT_PATTERNS = {
   hihats: 'x-x-x-x-x-x-x-x-',
   tom: '------------x---',
   modA: 'x-------x-------',
-  modB: '--x---x---x---x-',
+  modB: 'x-------x-------',
+  modC: 'x-------x-------',
 };
 
 const TRACKS = [
@@ -16,8 +17,9 @@ const TRACKS = [
   { id: 'snare', label: 'Snare', type: 'drum' },
   { id: 'hihats', label: 'Hats', type: 'drum' },
   { id: 'tom', label: 'Tom', type: 'drum' },
-  { id: 'modA', label: 'Sine A', type: 'sine' },
-  { id: 'modB', label: 'Sine B', type: 'sine' },
+  { id: 'modA', label: 'Pad A', type: 'sine' },
+  { id: 'modB', label: 'Pad B', type: 'sine' },
+  { id: 'modC', label: 'Pad C', type: 'sine' },
 ];
 
 function normalizePattern(pattern) {
@@ -53,6 +55,16 @@ function envelope(audio, destination, time, peak, attack, decay) {
   gain.gain.setValueAtTime(0.0001, time);
   gain.gain.exponentialRampToValueAtTime(peak, time + attack);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + attack + decay);
+  gain.connect(destination);
+  return gain;
+}
+
+function padEnvelope(audio, destination, time, peak, attack, hold, release) {
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(0.0001, time);
+  gain.gain.exponentialRampToValueAtTime(peak, time + attack);
+  gain.gain.setTargetAtTime(peak * 0.72, time + attack + hold, release * 0.32);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + attack + hold + release);
   gain.connect(destination);
   return gain;
 }
@@ -116,21 +128,32 @@ function playSine(audio, destination, time, id, step) {
   const osc = audio.createOscillator();
   const mod = audio.createOscillator();
   const modDepth = audio.createGain();
-  const amp = envelope(audio, destination, time, id === 'modA' ? 0.2 : 0.15, 0.012, 0.32);
-  const root = id === 'modA' ? 82.41 : 123.47;
-  const interval = id === 'modA' ? [0, 7, 10, 12] : [0, 3, 5, 10];
-  const semitone = interval[(step / 2) % interval.length | 0];
+  const filter = audio.createBiquadFilter();
+  const amp = padEnvelope(audio, destination, time, 0.11, 0.18, 0.9, 2.7);
+  const chordProgression = [
+    [0, 3, 7],
+    [-2, 2, 7],
+    [-5, 0, 3],
+    [-7, -2, 2],
+  ];
+  const voiceIndex = { modA: 0, modB: 1, modC: 2 }[id] ?? 0;
+  const chord = chordProgression[Math.floor(step / 4) % chordProgression.length];
+  const root = 110;
+  const semitone = chord[voiceIndex];
   osc.type = 'sine';
   mod.type = 'sine';
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(920 + voiceIndex * 180, time);
+  filter.Q.setValueAtTime(0.7, time);
   osc.frequency.setValueAtTime(root * 2 ** (semitone / 12), time);
-  mod.frequency.setValueAtTime(id === 'modA' ? 5.5 : 8.2, time);
-  modDepth.gain.setValueAtTime(id === 'modA' ? 12 : 20, time);
+  mod.frequency.setValueAtTime(0.35 + voiceIndex * 0.18, time);
+  modDepth.gain.setValueAtTime(2.5 + voiceIndex * 1.2, time);
   mod.connect(modDepth).connect(osc.frequency);
-  osc.connect(amp);
+  osc.connect(filter).connect(amp);
   mod.start(time);
   osc.start(time);
-  mod.stop(time + 0.38);
-  osc.stop(time + 0.38);
+  mod.stop(time + 3.8);
+  osc.stop(time + 3.8);
 }
 
 export function createMusicModule(root) {
@@ -252,7 +275,8 @@ trenchSequencer.setPattern('snare', '${state.patterns.snare}');
 trenchSequencer.setPattern('hihats', '${state.patterns.hihats}');
 trenchSequencer.setPattern('tom', '${state.patterns.tom}');
 trenchSequencer.setPattern('modA', '${state.patterns.modA}');
-trenchSequencer.setPattern('modB', '${state.patterns.modB}');`;
+trenchSequencer.setPattern('modB', '${state.patterns.modB}');
+trenchSequencer.setPattern('modC', '${state.patterns.modC}');`;
   }
 
   function render() {

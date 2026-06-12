@@ -25,6 +25,17 @@ const CRITTER_DEPTH_THRESHOLD_KM = 8;
 const CRITTER_APPEAR_DELAY_SECONDS = 2.6;
 const FORMATION_SCALE = 0.5;
 
+export const trenchWallInscriptions = [
+  {
+    text: 'peace and fucking. BELIEVE',
+    z: -6,
+    side: 'right',
+    width: 6.2,
+    depthOffset: 2.4,
+    opacity: 0.9,
+  },
+];
+
 function effectiveTrenchDepth(settings) {
   return settings.trenchDepth * settings.verticalExaggeration;
 }
@@ -139,6 +150,8 @@ export function createTrenchScene(canvas, hud) {
   group.add(plumes);
   const formations = makeTrenchFormations(settings);
   group.add(formations);
+  const inscriptions = makeTrenchWallInscriptions(settings);
+  group.add(inscriptions);
   const critters = makeBioluminescentCritters(settings);
   group.add(critters);
   const mirrorBall = makeMirrorBall(settings);
@@ -217,6 +230,7 @@ export function createTrenchScene(canvas, hud) {
     updateSlab(slab, settings);
     updateVectors(vectors, settings);
     updateTrenchFormations(formations, settings);
+    updateTrenchWallInscriptions(inscriptions, settings);
     updateBioluminescentCritterPositions(critters, settings);
     updateMirrorBall(mirrorBall, settings);
     updateMetrics(settings, hud);
@@ -612,6 +626,81 @@ function animateTrenchFormations(group, elapsed) {
     if (!object.visible || object.userData.kind !== 'vent') return;
     object.rotation.y = object.userData.baseRotationY + Math.sin(elapsed * 0.7 + object.userData.phase) * 0.035;
   });
+}
+
+function makeTrenchWallInscriptions(settings) {
+  const group = new THREE.Group();
+
+  trenchWallInscriptions.forEach((entry, index) => {
+    if (!entry.text) return;
+    const texture = makeInscriptionTexture(entry.text, entry);
+    const aspect = texture.image.width / texture.image.height;
+    const width = entry.width ?? 4.5;
+    const geometry = new THREE.PlaneGeometry(width, width / aspect);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: entry.opacity ?? 0.72,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = 5;
+    mesh.userData = { ...entry, index };
+    group.add(mesh);
+  });
+
+  updateTrenchWallInscriptions(group, settings);
+  return group;
+}
+
+function updateTrenchWallInscriptions(group, settings) {
+  group.children.forEach((mesh) => {
+    const { z = WORLD.basinZ, side = 'left', depthOffset = 1.5, wallOffset = 6.8 } = mesh.userData;
+    const sideSign = side === 'right' ? 1 : -1;
+    const wallX = basinCenterX(z) + sideSign * wallOffset;
+    const wallY = elevationAt(wallX, z, settings) * settings.verticalExaggeration;
+    mesh.position.set(wallX - sideSign * 0.08, wallY + depthOffset, z);
+    mesh.lookAt(basinCenterX(z), wallY + depthOffset * 0.72, z - 8);
+    mesh.rotateY(Math.PI);
+    mesh.rotateZ(sideSign * 0.08);
+  });
+}
+
+function makeInscriptionTexture(text, entry = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(4, 13, 17, 0.2)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = `900 ${entry.fontSize ?? 104}px Inter, Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = entry.shadowColor ?? 'rgba(0, 10, 14, 0.72)';
+  ctx.lineWidth = 18;
+  ctx.strokeText(text.toUpperCase(), canvas.width / 2, canvas.height / 2 + 3);
+  ctx.fillStyle = entry.color ?? 'rgba(159, 255, 244, 0.86)';
+  ctx.fillText(text.toUpperCase(), canvas.width / 2, canvas.height / 2);
+
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+  for (let i = 0; i < 90; i += 1) {
+    const x = (i * 97) % canvas.width;
+    const y = (i * 53) % canvas.height;
+    ctx.fillRect(x, y, 6 + (i % 5) * 5, 2 + (i % 3));
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
 }
 
 function makeBioluminescentCritters(settings) {

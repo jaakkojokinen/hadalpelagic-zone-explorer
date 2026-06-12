@@ -539,7 +539,8 @@ body {
 }
 
 .sequencer__row[data-track="modA"] .sequencer__step--on,
-.sequencer__row[data-track="modB"] .sequencer__step--on {
+.sequencer__row[data-track="modB"] .sequencer__step--on,
+.sequencer__row[data-track="modC"] .sequencer__step--on {
   border-color: rgb(111 246 255 / 88%);
   background: #6ff6ff;
 }
