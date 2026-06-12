@@ -1101,11 +1101,12 @@ function animateSeaFog(group, elapsed, settings) {
 function makeSlab(settings) {
   const geometry = new THREE.BufferGeometry();
   const material = new THREE.MeshStandardMaterial({
-    color: 0x33434b,
+    color: 0x48616b,
     roughness: 0.9,
     metalness: 0,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.2,
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -1124,7 +1125,9 @@ function updateSlab(mesh, settings) {
       const d = c / cols;
       const x = basinCenterX(z) + d * 23;
       const dip = Math.tan(THREE.MathUtils.degToRad(settings.slabDip));
-      const y = -0.25 - d * dip * 10 * settings.verticalExaggeration + Math.sin(z * 0.35) * 0.18;
+      const terrainY = elevationAt(x, z, settings) * settings.verticalExaggeration;
+      const bend = Math.sin(z * 0.35) * 0.08;
+      const y = terrainY - 0.55 - d * dip * 7.4 * settings.verticalExaggeration + bend;
       vertices.push(x, y, z);
     }
   }
