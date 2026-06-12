@@ -10,6 +10,7 @@ const hud = {
   title: document.querySelector('#readout-title'),
   body: document.querySelector('#readout-body'),
   navButtons: document.querySelectorAll('[data-view]'),
+  abyssCritters: document.querySelector('#abyss-critters'),
 };
 
 createTrenchScene(canvas, hud);

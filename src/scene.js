@@ -21,23 +21,36 @@ const bathymetryStops = [
   [1, 0x6d5131],
 ].map(([stop, color]) => [stop, new THREE.Color(color)]);
 
+const CRITTER_DEPTH_THRESHOLD_KM = 8;
+const CRITTER_APPEAR_DELAY_SECONDS = 2.6;
+
+function effectiveTrenchDepth(settings) {
+  return settings.trenchDepth * settings.verticalExaggeration;
+}
+
 const cameraViews = {
   overview: {
     position: new THREE.Vector3(24, 19, 30),
     target: new THREE.Vector3(1, -1.7, 0),
     text: ['Bathymetry', 'Color follows seafloor elevation, revealing the outer rise, deep basin, accretionary wedge, and volcanic arc.'],
   },
-  descent: {
-    position: new THREE.Vector3(7, -1.8, 16),
-    target: new THREE.Vector3(basinCenterX(WORLD.basinZ), -6.1, WORLD.basinZ),
-    text: ['Water column descent', 'The view drops below sea level so the rounded basin walls, sediment drape, and bending faults read as an explorable volume.'],
-  },
   trench: {
-    position: new THREE.Vector3(-1.8, -7.3, 7),
-    target: new THREE.Vector3(basinCenterX(WORLD.basinZ) - 0.3, -7.1, WORLD.basinZ - 6),
-    text: ['Basin floor', 'Scarps, talus blocks, sediment fans, and vent fields gather across the irregular 7 km-deep central low.'],
+    text: ['Basin floor', 'Scarps, talus blocks, sediment fans, and vent fields gather across the irregular central low.'],
   },
 };
+
+function cameraViewFor(viewName, settings) {
+  if (viewName !== 'trench') return cameraViews.overview;
+
+  const targetZ = WORLD.basinZ - 4.5;
+  const centerX = basinCenterX(targetZ);
+  const floorY = elevationAt(centerX, targetZ, settings) * settings.verticalExaggeration;
+  return {
+    position: new THREE.Vector3(centerX - 2.2, floorY + 2.15, targetZ + 10.5),
+    target: new THREE.Vector3(centerX - 0.2, floorY + 1.1, targetZ - 0.8),
+    text: cameraViews.trench.text,
+  };
+}
 
 export function createTrenchScene(canvas, hud) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -57,6 +70,9 @@ export function createTrenchScene(canvas, hud) {
   controls.maxPolarAngle = Math.PI * 0.78;
   controls.minDistance = 4;
   controls.maxDistance = 72;
+  controls.addEventListener('start', () => {
+    viewTransition = false;
+  });
 
   const settings = {
     layer: 'bathymetry',
@@ -68,9 +84,9 @@ export function createTrenchScene(canvas, hud) {
     fogThickness: 0.85,
     fogBurnOff: 0,
     animateFogBurnOff: false,
-    quakes: true,
-    heatPlumes: true,
-    vectors: true,
+    quakes: false,
+    heatPlumes: false,
+    vectors: false,
     currents: true,
     thermocline: true,
     ageStripes: true,
@@ -87,6 +103,10 @@ export function createTrenchScene(canvas, hud) {
     target: cameraViews.overview.target.clone(),
   };
   let viewTransition = false;
+  const critterReveal = {
+    activationStartedAt: null,
+    visibleAmount: 0,
+  };
 
   const group = new THREE.Group();
   scene.add(group);
@@ -102,17 +122,22 @@ export function createTrenchScene(canvas, hud) {
   const slab = makeSlab(settings);
   group.add(slab);
   const quakes = makeQuakes();
+  quakes.visible = settings.quakes;
   group.add(quakes);
   const vectors = makeVectors(settings);
+  vectors.visible = settings.vectors;
   group.add(vectors);
   const currents = makeCurrents();
   group.add(currents);
   const thermocline = makeThermoclineAcoustics();
   group.add(thermocline);
   const plumes = makePlumes(settings);
+  plumes.visible = settings.heatPlumes;
   group.add(plumes);
   const formations = makeTrenchFormations(settings);
   group.add(formations);
+  const critters = makeBioluminescentCritters(settings);
+  group.add(critters);
   const mirrorBall = makeMirrorBall(settings);
   group.add(mirrorBall);
   const particulates = makeMarineSnow();
@@ -135,8 +160,8 @@ export function createTrenchScene(canvas, hud) {
   const gui = new GUI({ title: 'Data layers' });
   addTooltip(gui.domElement, 'Controls for camera mode, geologic parameters, data layers, and visible scene annotations.');
   const explorationController = withTooltip(
-    gui.add(settings, 'explorationMode', ['overview', 'descent', 'trench']).name('Explore').onChange(setView),
-    'Switches between overview, underwater descent, and basin-floor camera targets.',
+    gui.add(settings, 'explorationMode', ['overview', 'trench']).name('Explore').onChange(setView),
+    'Moves the camera between overview and basin-floor starting positions without locking exploration.',
   );
   withTooltip(
     gui.add(settings, 'layer', ['bathymetry', 'heat', 'age']).name('Surface color').onChange(refresh),
@@ -156,7 +181,7 @@ export function createTrenchScene(canvas, hud) {
   );
   withTooltip(
     gui.add(settings, 'verticalExaggeration', 0.75, 2.1, 0.05).name('Vertical scale').onChange(refreshGeometry),
-    'Scales vertical relief for readability without changing the physical max-depth label.',
+    'Scales vertical relief and the effective depth used by the max-depth readout and deep-water life threshold.',
   );
   withTooltip(gui.add(settings, 'waterLevel', -1.5, 1.8, 0.05).name('Sea level').onChange(() => {
     water.position.y = settings.waterLevel;
@@ -170,9 +195,6 @@ export function createTrenchScene(canvas, hud) {
     updateSeaFog(seaFog, settings);
   }), 'Warms and mixes the fog layer so droplets evaporate into broken patches rather than disappearing all at once.');
   withTooltip(gui.add(settings, 'animateFogBurnOff').name('Animate burn-off'), 'Animates realistic fog dissipation: morning-thick fog becomes patchier as sunlight and turbulent mixing lower relative humidity.');
-  withTooltip(gui.add(settings, 'quakes').name('Earthquakes').onChange((v) => { quakes.visible = v; }), 'Shows or hides animated Wadati-Benioff zone earthquake points.');
-  withTooltip(gui.add(settings, 'heatPlumes').name('Heat plumes').onChange((v) => { plumes.visible = v; }), 'Shows or hides volcanic-arc heat plume markers.');
-  withTooltip(gui.add(settings, 'vectors').name('Plate vectors').onChange((v) => { vectors.visible = v; }), 'Shows or hides convergence direction arrows.');
   withTooltip(gui.add(settings, 'currents').name('Water currents').onChange((v) => { currents.visible = v; }), 'Shows or hides slow water-current ribbons in the basin water column.');
   withTooltip(gui.add(settings, 'thermocline').name('Thermocline sonar').onChange((v) => { thermocline.visible = v; }), 'Shows the Cold War-relevant thermocline, deep sound channel, acoustic ray bending, and shadow zone below about 1 km.');
   withTooltip(gui.add(settings, 'ageStripes').name('Age stripes').onChange(refresh), 'Adds stripe banding to the plate-age color layer.');
@@ -194,6 +216,7 @@ export function createTrenchScene(canvas, hud) {
     updateSlab(slab, settings);
     updateVectors(vectors, settings);
     updateTrenchFormations(formations, settings);
+    updateBioluminescentCritterPositions(critters, settings);
     updateMirrorBall(mirrorBall, settings);
     updateMetrics(settings, hud);
     refresh();
@@ -208,7 +231,7 @@ export function createTrenchScene(canvas, hud) {
   }
 
   function setView(viewName) {
-    const view = cameraViews[viewName] ?? cameraViews.overview;
+    const view = cameraViewFor(viewName, settings);
     settings.explorationMode = viewName;
     cameraGoal.position.copy(view.position);
     cameraGoal.target.copy(view.target);
@@ -253,11 +276,13 @@ export function createTrenchScene(canvas, hud) {
       updateSeaFog(seaFog, settings);
     }
     updateAtmosphere(scene, renderer, ambient, key, rim, trenchLight, camera, settings);
+    updateWaterOpacity(water, camera, settings);
     animateSeaFog(seaFog, elapsed, settings);
     animateQuakes(quakes, elapsed);
     animatePlumes(plumes, elapsed);
     animateMarineSnow(particulates, camera, elapsed);
     animateTrenchFormations(formations, elapsed);
+    animateBioluminescentCritters(critters, critterReveal, elapsed, settings, camera, hud.abyssCritters);
     animateMirrorBall(mirrorBall, elapsed);
     animateVectors(vectors, elapsed, settings);
     animateCurrents(currents, elapsed);
@@ -552,6 +577,198 @@ function animateTrenchFormations(group, elapsed) {
   });
 }
 
+function makeBioluminescentCritters(settings) {
+  const group = new THREE.Group();
+  group.visible = false;
+  group.userData.readyAmount = 0;
+  const textures = [
+    makePixelCritterTexture('fish'),
+    makePixelCritterTexture('jelly'),
+    makePixelCritterTexture('shrimp'),
+    makePixelCritterTexture('spider'),
+  ];
+  const glowTexture = makeGlowTexture();
+
+  for (let i = 0; i < 20; i += 1) {
+    const material = new THREE.SpriteMaterial({
+      map: textures[i % textures.length],
+      transparent: true,
+      opacity: 0,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    const sprite = new THREE.Sprite(material);
+    const aura = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture,
+      color: 0x63f6ff,
+      transparent: true,
+      opacity: 0,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    }));
+    aura.renderOrder = 1;
+    sprite.userData = {
+      index: i,
+      zSeed: -17 + ((i * 5.9) % 34),
+      xSeed: -3.4 + ((i * 2.73) % 6.8),
+      depthOffset: 0.14 + (rankedNoise(i, 0.22) * 0.5),
+      phase: rankedNoise(i, 0.37) * Math.PI * 2,
+      swimSpeed: 0.34 + rankedNoise(i, 0.47) * 0.42,
+      currentGrip: 0.25 + rankedNoise(i, 0.57) * 0.8,
+      spawnDelay: rankedNoise(i, 0.67) * 4.8,
+      baseScale: 0.22 + rankedNoise(i, 0.77) * 0.13,
+      facing: rankedNoise(i, 0.87) > 0.5 ? 1 : -1,
+      aura,
+    };
+    group.add(aura);
+    group.add(sprite);
+  }
+
+  updateBioluminescentCritterPositions(group, settings);
+  return group;
+}
+
+function makeGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 96;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(48, 48, 4, 48, 48, 46);
+  gradient.addColorStop(0, 'rgba(140, 255, 247, 0.62)');
+  gradient.addColorStop(0.32, 'rgba(84, 229, 255, 0.24)');
+  gradient.addColorStop(0.72, 'rgba(56, 169, 220, 0.08)');
+  gradient.addColorStop(1, 'rgba(56, 169, 220, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function makePixelCritterTexture(kind) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = '#48f4ff';
+
+  const colorA = '#66fff0';
+  const colorB = '#28d8ff';
+  const eye = '#021724';
+  const rects = {
+    fish: [
+      [14, 26, 20, 10, colorA], [34, 28, 8, 6, colorB], [8, 28, 6, 6, colorA],
+      [24, 22, 4, 4, colorA], [24, 36, 4, 4, colorB], [18, 30, 4, 4, eye],
+    ],
+    jelly: [
+      [23, 16, 18, 12, colorA], [19, 24, 26, 8, colorA], [24, 32, 4, 16, colorB],
+      [32, 32, 4, 20, colorA], [40, 32, 4, 14, colorB], [26, 22, 4, 4, eye], [36, 22, 4, 4, eye],
+    ],
+    shrimp: [
+      [16, 26, 22, 8, colorA], [38, 28, 6, 5, colorA], [10, 28, 6, 5, colorB],
+      [8, 24, 6, 3, colorA], [8, 35, 6, 3, colorB], [22, 22, 8, 4, colorA], [24, 34, 8, 4, colorB],
+    ],
+    spider: [
+      [26, 18, 12, 4, colorA], [22, 22, 20, 4, colorA], [18, 26, 28, 10, colorA],
+      [22, 36, 20, 4, colorA], [26, 40, 12, 4, colorA], [12, 18, 10, 4, colorB],
+      [8, 14, 4, 4, colorB], [6, 10, 4, 4, colorB], [10, 38, 10, 4, colorB],
+      [6, 42, 4, 6, colorB], [44, 18, 8, 4, colorB], [52, 14, 4, 4, colorB],
+      [56, 10, 4, 6, colorB], [44, 40, 10, 4, colorB], [54, 44, 4, 6, colorB],
+      [48, 26, 8, 4, colorB], [56, 30, 4, 4, colorB], [8, 28, 10, 4, colorB],
+      [4, 32, 4, 4, colorB], [26, 28, 4, 4, eye], [36, 28, 4, 4, eye],
+    ],
+  }[kind];
+
+  rects.forEach(([x, y, w, h, color]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  });
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
+function updateBioluminescentCritterPositions(group, settings) {
+  const floorLimit = -CRITTER_DEPTH_THRESHOLD_KM - 0.12;
+  group.children.forEach((sprite) => {
+    if (!sprite.material.map || !sprite.userData.zSeed) return;
+    const { zSeed, xSeed, depthOffset } = sprite.userData;
+    const z = zSeed + Math.sin(zSeed * 0.31) * 1.1;
+    const x = basinCenterX(z) + xSeed;
+    const floorY = elevationAt(x, z, settings) * settings.verticalExaggeration;
+    const y = Math.min(floorY + depthOffset, floorLimit - rankedNoise(sprite.userData.index, 0.94) * 0.55);
+    sprite.userData.anchor = new THREE.Vector3(x, y, z);
+    sprite.position.copy(sprite.userData.anchor);
+    sprite.userData.aura.position.copy(sprite.userData.anchor);
+    sprite.scale.setScalar(sprite.userData.baseScale);
+    sprite.userData.aura.scale.setScalar(sprite.userData.baseScale * 4.8);
+  });
+}
+
+function animateBioluminescentCritters(group, reveal, elapsed, settings, camera, overlay) {
+  const depthReady = effectiveTrenchDepth(settings) >= CRITTER_DEPTH_THRESHOLD_KM && camera.position.y < -1.2;
+
+  if (!depthReady) {
+    reveal.activationStartedAt = null;
+    reveal.visibleAmount = 0;
+  } else if (reveal.activationStartedAt === null) {
+    reveal.activationStartedAt = elapsed;
+  } else {
+    const delayed = elapsed - reveal.activationStartedAt - CRITTER_APPEAR_DELAY_SECONDS;
+    reveal.visibleAmount = THREE.MathUtils.smoothstep(delayed, 0, 2.4);
+  }
+
+  group.visible = reveal.visibleAmount > 0.01;
+  overlay?.classList.remove('abyss-critters--visible');
+
+  group.children.forEach((sprite) => {
+    if (!sprite.material.map || !sprite.userData.anchor) return;
+    const { anchor, phase, swimSpeed, currentGrip, spawnDelay, baseScale, facing, index } = sprite.userData;
+    const localReveal = THREE.MathUtils.smoothstep(elapsed - (reveal.activationStartedAt ?? elapsed) - CRITTER_APPEAR_DELAY_SECONDS - spawnDelay, 0, 2.6);
+    const t = elapsed * swimSpeed + phase;
+    const current = settings.currents ? currentVectorAt(anchor, elapsed, index).multiplyScalar(currentGrip) : new THREE.Vector3();
+    const ownPath = new THREE.Vector3(
+      Math.sin(t * 1.3) * 0.34,
+      Math.sin(t * 1.9 + index) * 0.12,
+      Math.cos(t * 0.9) * 0.46,
+    );
+
+    sprite.position.copy(anchor).add(ownPath).add(current);
+    const pulse = 0.42 + Math.sin(t * 3.1) * 0.16;
+    const opacity = reveal.visibleAmount * localReveal * pulse;
+    sprite.material.opacity = opacity;
+    sprite.material.rotation = Math.sin(t * 0.8) * 0.22;
+    sprite.scale.set(baseScale * facing * (1 + Math.sin(t) * 0.08), baseScale * (1 + Math.cos(t * 1.2) * 0.08), 1);
+
+    sprite.userData.aura.position.copy(sprite.position);
+    sprite.userData.aura.material.opacity = Math.min(0.8, opacity * 0.72);
+    sprite.userData.aura.scale.setScalar(baseScale * (4.2 + Math.sin(t * 1.6) * 0.42));
+  });
+}
+
+function currentVectorAt(position, elapsed, index) {
+  const ribbon = Math.sin(position.z * 0.26 + elapsed * 0.52 + index * 0.71);
+  const eddy = Math.cos(position.x * 0.42 - elapsed * 0.38 + position.z * 0.08);
+  return new THREE.Vector3(
+    ribbon * 0.34,
+    Math.sin(elapsed * 0.7 + index) * 0.06,
+    eddy * 0.28,
+  );
+}
+
 function makeMarineSnow() {
   const count = 460;
   const positions = new Float32Array(count * 3);
@@ -595,16 +812,28 @@ function animateMarineSnow(points, camera, elapsed) {
 
 function updateAtmosphere(scene, renderer, ambient, key, rim, trenchLight, camera, settings) {
   const underwater = THREE.MathUtils.smoothstep(settings.waterLevel - camera.position.y, 0, 4);
+  const depthOpacity = waterOpacityForCamera(camera, settings);
   const surfaceColor = new THREE.Color(0x07131a);
   const deepColor = new THREE.Color(0x021923);
   const color = surfaceColor.clone().lerp(deepColor, underwater);
   renderer.setClearColor(color, 1);
   scene.fog.color.copy(color);
-  scene.fog.density = THREE.MathUtils.lerp(0.026, 0.072, underwater);
+  scene.fog.density = THREE.MathUtils.lerp(0.026, 0.072 + depthOpacity * 0.045, underwater);
   ambient.intensity = THREE.MathUtils.lerp(1.7, 0.72, underwater);
   key.intensity = THREE.MathUtils.lerp(2.4, 0.65, underwater);
   rim.intensity = THREE.MathUtils.lerp(1.2, 1.9, underwater);
   trenchLight.intensity = THREE.MathUtils.lerp(0.4, 3.1, underwater);
+}
+
+function updateWaterOpacity(water, camera, settings) {
+  water.material.uniforms.uOpacity.value = waterOpacityForCamera(camera, settings);
+}
+
+function waterOpacityForCamera(camera, settings) {
+  const depth = Math.max(0, settings.waterLevel - camera.position.y);
+  const deepest = Math.max(1, effectiveTrenchDepth(settings));
+  const depthT = THREE.MathUtils.smoothstep(depth, 0.4, deepest);
+  return THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.24, 0.8, depthT), 0.24, 0.8);
 }
 
 function updateTerrain(mesh, settings) {
@@ -681,6 +910,7 @@ function makeWater() {
       uTime: { value: 0 },
       uColorA: { value: new THREE.Color(0x0a6679) },
       uColorB: { value: new THREE.Color(0x71d4d6) },
+      uOpacity: { value: 0.34 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -696,9 +926,10 @@ function makeWater() {
       varying vec2 vUv;
       uniform vec3 uColorA;
       uniform vec3 uColorB;
+      uniform float uOpacity;
       void main() {
         vec3 color = mix(uColorA, uColorB, smoothstep(0.0, 1.0, vUv.y));
-        gl_FragColor = vec4(color, 0.34);
+        gl_FragColor = vec4(color, uOpacity);
       }
     `,
   });
@@ -1114,7 +1345,7 @@ function makeSectionMarkers() {
 }
 
 function updateMetrics(settings, hud) {
-  hud.depth.textContent = `${settings.trenchDepth.toFixed(1)} km`;
+  hud.depth.textContent = `${effectiveTrenchDepth(settings).toFixed(1)} km`;
   hud.convergence.textContent = `${Math.round(settings.convergence)} mm/yr`;
   hud.age.textContent = `${Math.round(plateAgeAt(-18) - plateAgeAt(14))} Myr`;
 }

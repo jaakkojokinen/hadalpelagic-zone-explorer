@@ -29,6 +29,7 @@ body {
 #app {
   position: relative;
   isolation: isolate;
+  user-select: none;
 }
 
 #trench-scene {
@@ -43,6 +44,7 @@ body {
   position: fixed;
   top: 20px;
   left: 20px;
+  z-index: 2;
   width: min(450px, calc(100vw - 40px));
   padding: 0;
   pointer-events: none;
@@ -194,10 +196,138 @@ body {
   background: transparent;
 }
 
+.abyss-critters {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 1.8s ease, visibility 1.8s ease;
+}
+
+.abyss-critters--visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.abyss-critters__critter {
+  position: absolute;
+  width: clamp(12px, 1.35vw, 22px);
+  height: auto;
+  overflow: visible;
+  filter:
+    drop-shadow(0 0 3px rgb(125 255 244 / 88%))
+    drop-shadow(0 0 9px rgb(35 214 255 / 46%));
+  animation: abyss-swim 7s ease-in-out infinite;
+}
+
+.abyss-critters__critter rect {
+  fill: #67fff0;
+}
+
+.abyss-critters__critter rect:nth-child(2n) {
+  fill: #36d8ff;
+}
+
+.abyss-critters__critter rect:nth-child(4n) {
+  fill: #d7fffb;
+}
+
+.abyss-critters__critter rect:last-child {
+  fill: #021c2b;
+}
+
+.abyss-critters__critter--fish {
+  top: 61%;
+  left: 50%;
+}
+
+.abyss-critters__critter--jelly {
+  top: 55%;
+  left: 58%;
+  width: clamp(11px, 1.2vw, 20px);
+  animation-name: abyss-bob;
+  animation-delay: -1.4s;
+}
+
+.abyss-critters__critter--shrimp {
+  top: 70%;
+  left: 44%;
+  width: clamp(13px, 1.5vw, 24px);
+  transform: scaleX(-1);
+  animation-delay: -3s;
+}
+
+.abyss-critters__critter--spider {
+  top: 66%;
+  left: 56%;
+  width: clamp(14px, 1.55vw, 25px);
+  filter:
+    drop-shadow(0 0 2px rgb(145 255 240 / 82%))
+    drop-shadow(0 0 7px rgb(47 217 255 / 42%));
+  animation-name: abyss-skitter;
+  animation-delay: -2.1s;
+}
+
+.abyss-critters__critter--spider rect {
+  fill: #61f7e7;
+}
+
+.abyss-critters__critter--spider rect:nth-child(n + 6) {
+  fill: #38d9ff;
+}
+
+.abyss-critters__critter--spider rect:nth-child(12),
+.abyss-critters__critter--spider rect:nth-child(13) {
+  fill: #031a26;
+}
+
+@keyframes abyss-swim {
+  0%,
+  100% {
+    translate: -5px 1px;
+  }
+
+  50% {
+    translate: 8px -5px;
+  }
+}
+
+@keyframes abyss-bob {
+  0%,
+  100% {
+    translate: 2px -4px;
+  }
+
+  50% {
+    translate: -7px 6px;
+  }
+}
+
+@keyframes abyss-skitter {
+  0%,
+  100% {
+    translate: -3px -2px;
+    rotate: -3deg;
+  }
+
+  45% {
+    translate: 5px 3px;
+    rotate: 4deg;
+  }
+
+  70% {
+    translate: 1px -4px;
+    rotate: -1deg;
+  }
+}
+
 .readout {
   position: fixed;
   right: 20px;
   bottom: 22px;
+  z-index: 2;
   width: min(380px, calc(100vw - 40px));
   padding: 16px;
   border: 1px solid rgb(255 255 255 / 14%);
@@ -256,6 +386,14 @@ body {
   border-radius: 8px;
   overflow: hidden;
   backdrop-filter: blur(16px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.lil-gui input,
+.lil-gui select {
+  user-select: auto;
+  -webkit-user-select: auto;
 }
 
 @media (max-width: 720px) {
@@ -284,6 +422,26 @@ body {
 
   .hud__legend {
     display: none;
+  }
+
+  .abyss-critters__critter--fish {
+    top: 59%;
+    left: 47%;
+  }
+
+  .abyss-critters__critter--jelly {
+    top: 52%;
+    left: 61%;
+  }
+
+  .abyss-critters__critter--shrimp {
+    top: 68%;
+    left: 36%;
+  }
+
+  .abyss-critters__critter--spider {
+    top: 64%;
+    left: 55%;
   }
 
   .hud__nav {
