@@ -24,6 +24,11 @@ const bathymetryStops = [
 const CRITTER_DEPTH_THRESHOLD_KM = 8;
 const CRITTER_APPEAR_DELAY_SECONDS = 2.6;
 const FORMATION_SCALE = 0.5;
+const MAX_RENDER_PIXEL_RATIO = 1.5;
+const ACTIVE_FRAME_INTERVAL_MS = 1000 / 60;
+const AMBIENT_FRAME_INTERVAL_MS = 1000 / 24;
+const ACTIVE_AFTER_INPUT_MS = 1200;
+const CRITTER_PAD_TRACKS = ['modA', 'modB', 'modC'];
 
 export const trenchWallInscriptions = [
   {
@@ -64,9 +69,14 @@ function cameraViewFor(viewName, settings) {
   };
 }
 
-export function createTrenchScene(canvas, hud) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+export function createTrenchScene(canvas, hud, events = {}) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    alpha: false,
+    antialias: window.devicePixelRatio <= 1.5,
+    powerPreference: 'high-performance',
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_RENDER_PIXEL_RATIO));
   renderer.setClearColor(0x07131a, 1);
 
   const scene = new THREE.Scene();
@@ -84,7 +94,9 @@ export function createTrenchScene(canvas, hud) {
   controls.maxDistance = 72;
   controls.addEventListener('start', () => {
     viewTransition = false;
+    wakeRenderer();
   });
+  controls.addEventListener('change', wakeRenderer);
 
   const settings = {
     layer: 'bathymetry',
@@ -120,6 +132,7 @@ export function createTrenchScene(canvas, hud) {
   const critterReveal = {
     activationStartedAt: null,
     visibleAmount: 0,
+    observing: false,
   };
 
   const group = new THREE.Group();
@@ -261,24 +274,37 @@ export function createTrenchScene(canvas, hud) {
 
   function resize() {
     const { clientWidth, clientHeight } = canvas;
+    if (!clientWidth || !clientHeight) return;
     camera.aspect = clientWidth / clientHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(clientWidth, clientHeight, false);
+    wakeRenderer();
   }
 
-  updateMetrics(settings, hud);
-  refresh();
-  setView(settings.explorationMode);
-  resize();
-
-  window.addEventListener('resize', resize);
-  canvas.addEventListener('pointermove', updateCritterTooltip);
-  canvas.addEventListener('pointerdown', updateCritterTooltip);
-  canvas.addEventListener('pointerleave', hideCritterTooltip);
-
   let rafId = 0;
+  let lastFrameAt = 0;
+  let lastInteractionAt = performance.now();
   const clock = new THREE.Clock();
-  function animate() {
+
+  function wakeRenderer() {
+    lastInteractionAt = performance.now();
+  }
+
+  function shouldRenderAtFullRate(now) {
+    return viewTransition || now - lastInteractionAt < ACTIVE_AFTER_INPUT_MS;
+  }
+
+  function animate(now = 0) {
+    rafId = requestAnimationFrame(animate);
+    if (document.hidden) {
+      return;
+    }
+    const frameInterval = shouldRenderAtFullRate(now) ? ACTIVE_FRAME_INTERVAL_MS : AMBIENT_FRAME_INTERVAL_MS;
+    if (now - lastFrameAt < frameInterval) {
+      return;
+    }
+    lastFrameAt = now;
+
     const elapsed = clock.getElapsedTime();
     if (viewTransition) {
       camera.position.lerp(cameraGoal.position, 0.035);
@@ -301,24 +327,47 @@ export function createTrenchScene(canvas, hud) {
     animatePlumes(plumes, elapsed);
     animateMarineSnow(particulates, camera, elapsed);
     animateTrenchFormations(formations, elapsed);
-    animateBioluminescentCritters(critters, critterReveal, elapsed, settings, camera, hud.abyssCritters);
+    animateBioluminescentCritters(critters, critterReveal, elapsed, settings, camera, hud.abyssCritters, events.onCritterPad);
+    const observingCritters = critterReveal.visibleAmount > 0.28;
+    if (critterReveal.observing !== observingCritters) {
+      critterReveal.observing = observingCritters;
+      events.onCritterObserveChange?.(observingCritters);
+    }
     animateMirrorBall(mirrorBall, elapsed);
     animateVectors(vectors, elapsed, settings);
     animateCurrents(currents, elapsed);
     animateThermoclineAcoustics(thermocline, elapsed);
     renderer.render(scene, camera);
-    rafId = requestAnimationFrame(animate);
   }
 
-  animate();
+  updateMetrics(settings, hud);
+  refresh();
+  setView(settings.explorationMode);
+  resize();
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('visibilitychange', wakeRenderer);
+  canvas.addEventListener('pointerdown', wakeRenderer);
+  canvas.addEventListener('pointermove', wakeRenderer);
+  canvas.addEventListener('wheel', wakeRenderer, { passive: true });
+  canvas.addEventListener('pointermove', updateCritterTooltip);
+  canvas.addEventListener('pointerdown', updateCritterTooltip);
+  canvas.addEventListener('pointerleave', hideCritterTooltip);
+
+  rafId = requestAnimationFrame(animate);
 
   return {
     dispose() {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
+      window.removeEventListener('visibilitychange', wakeRenderer);
+      canvas.removeEventListener('pointerdown', wakeRenderer);
+      canvas.removeEventListener('pointermove', wakeRenderer);
+      canvas.removeEventListener('wheel', wakeRenderer);
       canvas.removeEventListener('pointermove', updateCritterTooltip);
       canvas.removeEventListener('pointerdown', updateCritterTooltip);
       canvas.removeEventListener('pointerleave', hideCritterTooltip);
+      controls.removeEventListener('change', wakeRenderer);
       gui.destroy();
       renderer.dispose();
     },
@@ -748,6 +797,7 @@ function makeBioluminescentCritters(settings) {
       spawnDelay: rankedNoise(i, 0.67) * 4.8,
       baseScale: 0.22 + rankedNoise(i, 0.77) * 0.13,
       facing: rankedNoise(i, 0.87) > 0.5 ? 1 : -1,
+      lastPadGate: -1,
       isCritter: true,
       aura,
     };
@@ -845,7 +895,7 @@ function updateBioluminescentCritterPositions(group, settings) {
   });
 }
 
-function animateBioluminescentCritters(group, reveal, elapsed, settings, camera, overlay) {
+function animateBioluminescentCritters(group, reveal, elapsed, settings, camera, overlay, onCritterPad) {
   const depthReady = effectiveTrenchDepth(settings) >= CRITTER_DEPTH_THRESHOLD_KM && camera.position.y < -1.2;
 
   if (!depthReady) {
@@ -883,6 +933,16 @@ function animateBioluminescentCritters(group, reveal, elapsed, settings, camera,
     sprite.userData.aura.position.copy(sprite.position);
     sprite.userData.aura.material.opacity = Math.min(0.8, opacity * 0.72);
     sprite.userData.aura.scale.setScalar(baseScale * (4.2 + Math.sin(t * 1.6) * 0.42));
+
+    const padGate = Math.floor((t + localReveal * 0.4) * 0.72);
+    if (opacity > 0.16 && padGate !== sprite.userData.lastPadGate && padGate % 4 === index % 4) {
+      sprite.userData.lastPadGate = padGate;
+      onCritterPad?.({
+        trackId: CRITTER_PAD_TRACKS[index % CRITTER_PAD_TRACKS.length],
+        step: Math.abs(Math.floor(sprite.position.z + index * 3)) % 16,
+        intensity: THREE.MathUtils.clamp(opacity * 1.4, 0.18, 1),
+      });
+    }
   });
 }
 

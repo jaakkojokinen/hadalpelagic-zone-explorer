@@ -409,6 +409,13 @@ body {
   pointer-events: auto;
 }
 
+.music-module--critter-mode {
+  border-color: rgb(111 246 255 / 34%);
+  box-shadow:
+    0 16px 40px rgb(0 0 0 / 26%),
+    0 0 28px rgb(111 246 255 / 16%);
+}
+
 .music-module__header {
   display: flex;
   gap: 12px;
@@ -454,6 +461,16 @@ body {
   background: #ff4f7b;
 }
 
+.music-module--critter-mode .music-module__play {
+  color: #d9fffb;
+  background: rgb(111 246 255 / 16%);
+}
+
+.music-module :disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
 .music-module__tempo {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -485,7 +502,7 @@ body {
 
 .sequencer__row {
   display: grid;
-  grid-template-columns: 58px repeat(16, minmax(14px, 1fr));
+  grid-template-columns: 58px repeat(16, minmax(14px, 1fr)) 42px;
   gap: 4px;
   align-items: center;
 }
@@ -548,6 +565,26 @@ body {
 .sequencer__step--current {
   outline: 2px solid #ffffff;
   outline-offset: 1px;
+}
+
+.sequencer__clear {
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 4px;
+  color: #c6dddd;
+  font: inherit;
+  font-size: 0.58rem;
+  font-weight: 900;
+  background: rgb(255 255 255 / 7%);
+  cursor: pointer;
+}
+
+.sequencer__clear:hover {
+  border-color: rgb(255 79 123 / 60%);
+  color: #ffffff;
+  background: rgb(255 79 123 / 20%);
 }
 
 .sequencer-code {
@@ -685,13 +722,18 @@ body {
   }
 
   .sequencer__row {
-    grid-template-columns: 45px repeat(16, minmax(9px, 1fr));
+    grid-template-columns: 45px repeat(16, minmax(9px, 1fr)) 32px;
     gap: 3px;
   }
 
   .sequencer__track,
+  .sequencer__clear,
   .sequencer-code {
     font-size: 0.62rem;
+  }
+
+  .sequencer__clear {
+    padding: 0;
   }
 
   .sequencer-code {

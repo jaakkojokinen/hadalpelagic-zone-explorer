@@ -1,6 +1,9 @@
 const STEPS = 16;
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.12;
+const PAD_ROOT_FREQUENCY = 110;
+const PAD_SCALE_NAME = 'hadal minor';
+const PAD_SCALE_DEGREES = [0, 2, 3, 5, 7, 10, 12, 14, 15, 17, 19, 22, 24, 26, 27, 29];
 
 export const DEFAULT_PATTERNS = {
   kick: 'x---x---x---x---',
@@ -39,6 +42,16 @@ function makeStepButtons(track, state, onToggle) {
     button.addEventListener('click', () => onToggle(track.id, step));
     return button;
   });
+}
+
+function makeClearButton(track, onClear) {
+  const button = document.createElement('button');
+  button.className = 'sequencer__clear';
+  button.type = 'button';
+  button.textContent = 'Clear';
+  button.setAttribute('aria-label', `Clear ${track.label} row`);
+  button.addEventListener('click', () => onClear(track.id));
+  return button;
 }
 
 function makeNoiseBuffer(audio, durationSeconds = 0.2) {
@@ -124,28 +137,21 @@ function playTom(audio, destination, time) {
   osc.stop(time + 0.24);
 }
 
-function playSine(audio, destination, time, id, step) {
+function playSine(audio, destination, time, id, step, intensity = 1) {
   const osc = audio.createOscillator();
   const mod = audio.createOscillator();
   const modDepth = audio.createGain();
   const filter = audio.createBiquadFilter();
-  const amp = padEnvelope(audio, destination, time, 0.11, 0.18, 0.9, 2.7);
-  const chordProgression = [
-    [0, 3, 7],
-    [-2, 2, 7],
-    [-5, 0, 3],
-    [-7, -2, 2],
-  ];
+  const amp = padEnvelope(audio, destination, time, 0.11 * intensity, 0.18, 0.9, 2.7);
   const voiceIndex = { modA: 0, modB: 1, modC: 2 }[id] ?? 0;
-  const chord = chordProgression[Math.floor(step / 4) % chordProgression.length];
-  const root = 110;
-  const semitone = chord[voiceIndex];
+  const scaleStep = (step + voiceIndex * 2) % PAD_SCALE_DEGREES.length;
+  const semitone = PAD_SCALE_DEGREES[scaleStep] + voiceIndex * 12;
   osc.type = 'sine';
   mod.type = 'sine';
   filter.type = 'lowpass';
   filter.frequency.setValueAtTime(920 + voiceIndex * 180, time);
   filter.Q.setValueAtTime(0.7, time);
-  osc.frequency.setValueAtTime(root * 2 ** (semitone / 12), time);
+  osc.frequency.setValueAtTime(PAD_ROOT_FREQUENCY * 2 ** (semitone / 12), time);
   mod.frequency.setValueAtTime(0.35 + voiceIndex * 0.18, time);
   modDepth.gain.setValueAtTime(2.5 + voiceIndex * 1.2, time);
   mod.connect(modDepth).connect(osc.frequency);
@@ -169,6 +175,9 @@ export function createMusicModule(root) {
     nextStepAt: 0,
     clockZero: 0,
     timer: null,
+    audioError: '',
+    critterMode: false,
+    restorePlaying: false,
     patterns: Object.fromEntries(Object.entries(DEFAULT_PATTERNS).map(([key, value]) => [key, normalizePattern(value)])),
   };
 
@@ -180,16 +189,41 @@ export function createMusicModule(root) {
   };
 
   const stepButtons = new Map();
+  const clearButtons = new Map();
+
+  function setPlayStatus(text, pressed = false) {
+    els.play.textContent = text;
+    els.play.setAttribute('aria-pressed', String(pressed));
+    els.play.title = state.audioError;
+  }
 
   function ensureAudio() {
-    if (state.audio) return;
+    if (state.audio?.state === 'closed') {
+      state.audio = null;
+      state.master = null;
+      state.noiseBuffer = null;
+    }
+    if (state.audio) return true;
     const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    state.audio = new AudioContextClass();
-    state.master = state.audio.createGain();
-    state.master.gain.value = 0.74;
-    state.master.connect(state.audio.destination);
-    state.noiseBuffer = makeNoiseBuffer(state.audio, 0.35);
+    if (!AudioContextClass) {
+      state.audioError = 'Web Audio is not available in this browser.';
+      return false;
+    }
+    try {
+      state.audio = new AudioContextClass();
+      state.master = state.audio.createGain();
+      state.master.gain.value = 0.74;
+      state.master.connect(state.audio.destination);
+      state.noiseBuffer = makeNoiseBuffer(state.audio, 0.35);
+      state.audioError = '';
+      return true;
+    } catch (error) {
+      state.audio = null;
+      state.master = null;
+      state.noiseBuffer = null;
+      state.audioError = error instanceof Error ? error.message : 'Unable to start Web Audio.';
+      return false;
+    }
   }
 
   function currentTime() {
@@ -206,6 +240,10 @@ export function createMusicModule(root) {
     if (!state.patterns[trackId]) return;
     state.patterns[trackId] = normalizePattern(pattern);
     render();
+  }
+
+  function clearPattern(trackId) {
+    setPattern(trackId, '-'.repeat(STEPS));
   }
 
   function setPatterns(patterns) {
@@ -240,14 +278,30 @@ export function createMusicModule(root) {
   }
 
   async function start() {
-    ensureAudio();
-    if (state.audio) await state.audio.resume();
+    if (!ensureAudio()) {
+      setPlayStatus('No audio');
+      window.setTimeout(() => setPlayStatus('Play'), 1400);
+      return;
+    }
+    try {
+      await state.audio.resume();
+    } catch (error) {
+      state.audioError = error instanceof Error ? error.message : 'Unable to resume Web Audio.';
+      setPlayStatus('No audio');
+      window.setTimeout(() => setPlayStatus('Play'), 1400);
+      return;
+    }
+    if (state.audio.state !== 'running') {
+      state.audioError = `Audio context is ${state.audio.state}.`;
+      setPlayStatus('No audio');
+      window.setTimeout(() => setPlayStatus('Play'), 1400);
+      return;
+    }
     state.clockZero = performance.now() / 1000;
     state.isPlaying = true;
     state.step = 0;
     state.nextStepAt = currentTime() + 0.045;
-    els.play.textContent = 'Stop';
-    els.play.setAttribute('aria-pressed', 'true');
+    setPlayStatus('Stop', true);
     scheduler();
     state.timer = window.setInterval(scheduler, LOOKAHEAD_MS);
   }
@@ -256,9 +310,54 @@ export function createMusicModule(root) {
     state.isPlaying = false;
     window.clearInterval(state.timer);
     state.timer = null;
-    els.play.textContent = 'Play';
-    els.play.setAttribute('aria-pressed', 'false');
+    setPlayStatus('Play');
     renderActiveStep(-1);
+  }
+
+  function setControlsDisabled(disabled) {
+    els.play.disabled = disabled;
+    els.bpm.disabled = disabled;
+    stepButtons.forEach((buttons) => {
+      buttons.forEach((button) => {
+        button.disabled = disabled;
+      });
+    });
+    clearButtons.forEach((button) => {
+      button.disabled = disabled;
+    });
+  }
+
+  function setCritterMode(active) {
+    if (state.critterMode === active) return;
+    state.critterMode = active;
+    root.classList.toggle('music-module--critter-mode', active);
+
+    if (active) {
+      state.restorePlaying = state.isPlaying;
+      if (state.isPlaying) stop();
+      setControlsDisabled(true);
+      setPlayStatus('Critter');
+      if (ensureAudio()) {
+        state.audio.resume().catch((error) => {
+          state.audioError = error instanceof Error ? error.message : 'Unable to resume Web Audio.';
+        });
+      }
+      return;
+    }
+
+    setControlsDisabled(false);
+    setPlayStatus('Play');
+    if (state.restorePlaying) {
+      state.restorePlaying = false;
+      start();
+    }
+  }
+
+  function triggerCritterPad({ trackId = 'modA', step = 0, intensity = 1 } = {}) {
+    if (!state.critterMode || !ensureAudio() || state.audio.state !== 'running') return;
+    playSine(state.audio, state.master, state.audio.currentTime + 0.01, trackId, step, intensity);
+    renderActiveStep(step);
+    window.setTimeout(() => renderActiveStep(-1), 180);
   }
 
   function renderActiveStep(activeStep) {
@@ -270,7 +369,8 @@ export function createMusicModule(root) {
   }
 
   function renderCode() {
-    els.code.textContent = `trenchSequencer.setPattern('kick', '${state.patterns.kick}');
+    els.code.textContent = `// Pad scale: ${PAD_SCALE_NAME}
+trenchSequencer.setPattern('kick', '${state.patterns.kick}');
 trenchSequencer.setPattern('snare', '${state.patterns.snare}');
 trenchSequencer.setPattern('hihats', '${state.patterns.hihats}');
 trenchSequencer.setPattern('tom', '${state.patterns.tom}');
@@ -302,14 +402,22 @@ trenchSequencer.setPattern('modC', '${state.patterns.modC}');`;
     const buttons = makeStepButtons(track, state, toggleStep);
     buttons.forEach((button) => row.append(button));
     stepButtons.set(track.id, buttons);
+    const clearButton = makeClearButton(track, clearPattern);
+    clearButtons.set(track.id, clearButton);
+    row.append(clearButton);
     els.grid.append(row);
   });
 
   els.play.addEventListener('click', () => {
+    if (state.critterMode) return;
     if (state.isPlaying) {
       stop();
     } else {
-      start();
+      start().catch((error) => {
+        state.audioError = error instanceof Error ? error.message : 'Unable to start sequencer.';
+        setPlayStatus('No audio');
+        window.setTimeout(() => setPlayStatus('Play'), 1400);
+      });
     }
   });
 
@@ -324,8 +432,26 @@ trenchSequencer.setPattern('modC', '${state.patterns.modC}');`;
     get patterns() {
       return { ...state.patterns };
     },
+    get padScale() {
+      return {
+        name: PAD_SCALE_NAME,
+        rootFrequency: PAD_ROOT_FREQUENCY,
+        degrees: [...PAD_SCALE_DEGREES],
+      };
+    },
+    get audioState() {
+      return {
+        available: Boolean(window.AudioContext ?? window.webkitAudioContext),
+        context: state.audio?.state ?? 'not-created',
+        error: state.audioError,
+        playing: state.isPlaying,
+      };
+    },
     setPattern,
+    clearPattern,
     setPatterns,
+    setCritterMode,
+    triggerCritterPad,
     start,
     stop,
   };

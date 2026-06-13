@@ -4,6 +4,7 @@ import { createMusicModule } from './musicModule.js';
 
 const canvas = document.querySelector('#trench-scene');
 const loading = document.querySelector('#loading');
+const sequencer = createMusicModule(document.querySelector('#music-module'));
 const hud = {
   depth: document.querySelector('#metric-depth'),
   convergence: document.querySelector('#metric-convergence'),
@@ -15,8 +16,10 @@ const hud = {
   critterTooltip: document.querySelector('#critter-tooltip'),
 };
 
-createTrenchScene(canvas, hud);
-const sequencer = createMusicModule(document.querySelector('#music-module'));
+createTrenchScene(canvas, hud, {
+  onCritterObserveChange: (active) => sequencer?.setCritterMode(active),
+  onCritterPad: (event) => sequencer?.triggerCritterPad(event),
+});
 window.trenchSequencer = sequencer;
 globalThis.trenchSequencer = sequencer;
 
