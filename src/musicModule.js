@@ -1,30 +1,30 @@
 const STEPS = 16;
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.12;
-const PAD_ROOT_FREQUENCY = 110;
-const PAD_SCALE_NAME = 'hadal minor';
-const PAD_SCALE_DEGREES = [0, 2, 3, 5, 7, 10, 12, 14, 15, 17, 19, 22, 24, 26, 27, 29];
+const PAD_ROOT_FREQUENCY = 55;
+const PAD_SCALE_NAME = 'abyssal chroma';
+const PAD_SCALE_DEGREES = [0, 1, 5, 6, 10, 12, 13, 17, 18, 22, 24, 25, 29, 30, 34, 36];
 const EXPORT_SAMPLE_RATE = 44100;
-const EXPORT_EXTRA_TAIL_SECONDS = 4.2;
+const EXPORT_EXTRA_TAIL_SECONDS = 9.5;
 
 export const DEFAULT_PATTERNS = {
-  kick: 'x---x---x---x---',
-  snare: '----x-------x---',
-  hihats: 'x-x-x-x-x-x-x-x-',
-  tom: '------------x---',
-  modA: 'x-------x-------',
-  modB: 'x-------x-------',
-  modC: 'x-------x-------',
+  kick: 'x---------------',
+  snare: '----------x-----',
+  hihats: '----------------',
+  tom: '----x---------x-',
+  modA: 'x---------x-----',
+  modB: '------x---------',
+  modC: '-------------x--',
 };
 
 const TRACKS = [
-  { id: 'kick', label: 'Kick', type: 'drum' },
-  { id: 'snare', label: 'Snare', type: 'drum' },
-  { id: 'hihats', label: 'Hats', type: 'drum' },
-  { id: 'tom', label: 'Tom', type: 'drum' },
-  { id: 'modA', label: 'Pad A', type: 'sine' },
-  { id: 'modB', label: 'Pad B', type: 'sine' },
-  { id: 'modC', label: 'Pad C', type: 'sine' },
+  { id: 'kick', label: 'Pulse', type: 'drum' },
+  { id: 'snare', label: 'Silt', type: 'drum' },
+  { id: 'hihats', label: 'Static', type: 'drum' },
+  { id: 'tom', label: 'Hollow', type: 'drum' },
+  { id: 'modA', label: 'Drone A', type: 'sine' },
+  { id: 'modB', label: 'Drone B', type: 'sine' },
+  { id: 'modC', label: 'Drone C', type: 'sine' },
 ];
 
 function normalizePattern(pattern) {
@@ -86,82 +86,93 @@ function padEnvelope(audio, destination, time, peak, attack, hold, release) {
 
 function playKick(audio, destination, time) {
   const osc = audio.createOscillator();
-  const amp = envelope(audio, destination, time, 0.95, 0.004, 0.24);
+  const amp = envelope(audio, destination, time, 0.36, 0.035, 1.35);
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(145, time);
-  osc.frequency.exponentialRampToValueAtTime(42, time + 0.18);
+  osc.frequency.setValueAtTime(62, time);
+  osc.frequency.exponentialRampToValueAtTime(24, time + 1.1);
   osc.connect(amp);
   osc.start(time);
-  osc.stop(time + 0.26);
+  osc.stop(time + 1.55);
 }
 
 function playSnare(audio, destination, time, noiseBuffer) {
   const noise = audio.createBufferSource();
-  const noiseAmp = envelope(audio, destination, time, 0.42, 0.003, 0.16);
+  const noiseAmp = envelope(audio, destination, time, 0.12, 0.04, 1.15);
   const filter = audio.createBiquadFilter();
   filter.type = 'bandpass';
-  filter.frequency.setValueAtTime(1700, time);
-  filter.Q.setValueAtTime(0.9, time);
+  filter.frequency.setValueAtTime(420, time);
+  filter.Q.setValueAtTime(3.4, time);
   noise.buffer = noiseBuffer;
   noise.connect(filter).connect(noiseAmp);
   noise.start(time);
-  noise.stop(time + 0.18);
+  noise.stop(time + 1.28);
 
   const body = audio.createOscillator();
-  const bodyAmp = envelope(audio, destination, time, 0.16, 0.004, 0.09);
+  const bodyAmp = envelope(audio, destination, time, 0.055, 0.05, 0.72);
   body.type = 'triangle';
-  body.frequency.setValueAtTime(190, time);
+  body.frequency.setValueAtTime(88, time);
   body.connect(bodyAmp);
   body.start(time);
-  body.stop(time + 0.11);
+  body.stop(time + 0.92);
 }
 
 function playHat(audio, destination, time, noiseBuffer) {
   const noise = audio.createBufferSource();
-  const amp = envelope(audio, destination, time, 0.24, 0.001, 0.055);
+  const amp = envelope(audio, destination, time, 0.045, 0.015, 0.42);
   const filter = audio.createBiquadFilter();
-  filter.type = 'highpass';
-  filter.frequency.setValueAtTime(6500, time);
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(2800, time);
+  filter.Q.setValueAtTime(0.65, time);
   noise.buffer = noiseBuffer;
   noise.connect(filter).connect(amp);
   noise.start(time);
-  noise.stop(time + 0.07);
+  noise.stop(time + 0.56);
 }
 
 function playTom(audio, destination, time) {
   const osc = audio.createOscillator();
-  const amp = envelope(audio, destination, time, 0.5, 0.006, 0.2);
+  const amp = envelope(audio, destination, time, 0.18, 0.05, 1.8);
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(210, time);
-  osc.frequency.exponentialRampToValueAtTime(92, time + 0.16);
+  osc.frequency.setValueAtTime(92, time);
+  osc.frequency.exponentialRampToValueAtTime(33, time + 1.4);
   osc.connect(amp);
   osc.start(time);
-  osc.stop(time + 0.24);
+  osc.stop(time + 2.0);
 }
 
 function playSine(audio, destination, time, id, step, intensity = 1) {
   const osc = audio.createOscillator();
+  const detunedOsc = audio.createOscillator();
   const mod = audio.createOscillator();
   const modDepth = audio.createGain();
   const filter = audio.createBiquadFilter();
-  const amp = padEnvelope(audio, destination, time, 0.11 * intensity, 0.18, 0.9, 2.7);
+  const amp = padEnvelope(audio, destination, time, 0.045 * intensity, 1.25, 2.8, 7.4);
   const voiceIndex = { modA: 0, modB: 1, modC: 2 }[id] ?? 0;
   const scaleStep = (step + voiceIndex * 2) % PAD_SCALE_DEGREES.length;
   const semitone = PAD_SCALE_DEGREES[scaleStep] + voiceIndex * 12;
   osc.type = 'sine';
+  detunedOsc.type = 'sine';
   mod.type = 'sine';
   filter.type = 'lowpass';
-  filter.frequency.setValueAtTime(920 + voiceIndex * 180, time);
-  filter.Q.setValueAtTime(0.7, time);
-  osc.frequency.setValueAtTime(PAD_ROOT_FREQUENCY * 2 ** (semitone / 12), time);
-  mod.frequency.setValueAtTime(0.35 + voiceIndex * 0.18, time);
-  modDepth.gain.setValueAtTime(2.5 + voiceIndex * 1.2, time);
+  filter.frequency.setValueAtTime(260 + voiceIndex * 95, time);
+  filter.Q.setValueAtTime(2.35, time);
+  const frequency = PAD_ROOT_FREQUENCY * 2 ** (semitone / 12);
+  osc.frequency.setValueAtTime(frequency, time);
+  detunedOsc.frequency.setValueAtTime(frequency, time);
+  osc.detune.setValueAtTime(-9 + voiceIndex * 4, time);
+  detunedOsc.detune.setValueAtTime(12 + voiceIndex * 8, time);
+  mod.frequency.setValueAtTime(0.035 + voiceIndex * 0.026, time);
+  modDepth.gain.setValueAtTime(4.8 + voiceIndex * 2.2, time);
   mod.connect(modDepth).connect(osc.frequency);
+  modDepth.connect(detunedOsc.frequency);
   osc.connect(filter).connect(amp);
+  detunedOsc.connect(filter);
   mod.start(time);
   osc.start(time);
-  mod.stop(time + 3.8);
-  osc.stop(time + 3.8);
+  detunedOsc.start(time);
+  mod.stop(time + 10.6);
+  osc.stop(time + 10.6);
+  detunedOsc.stop(time + 10.6);
 }
 
 function encodeWav(audioBuffer) {
@@ -234,7 +245,7 @@ export function createMusicModule(root) {
     master: null,
     noiseBuffer: null,
     isPlaying: false,
-    bpm: 104,
+    bpm: 56,
     step: 0,
     nextStepAt: 0,
     clockZero: 0,
@@ -281,9 +292,9 @@ export function createMusicModule(root) {
     try {
       state.audio = new AudioContextClass();
       state.master = state.audio.createGain();
-      state.master.gain.value = 0.74;
+      state.master.gain.value = 0.62;
       state.master.connect(state.audio.destination);
-      state.noiseBuffer = makeNoiseBuffer(state.audio, 0.35);
+      state.noiseBuffer = makeNoiseBuffer(state.audio, 0.9);
       state.audioError = '';
       return true;
     } catch (error) {
@@ -455,9 +466,9 @@ export function createMusicModule(root) {
       const renderDuration = loopDuration + EXPORT_EXTRA_TAIL_SECONDS;
       const offline = new OfflineAudioContextClass(2, Math.ceil(renderDuration * EXPORT_SAMPLE_RATE), EXPORT_SAMPLE_RATE);
       const master = offline.createGain();
-      master.gain.value = 0.74;
+      master.gain.value = 0.62;
       master.connect(offline.destination);
-      const noiseBuffer = makeNoiseBuffer(offline, 0.35);
+      const noiseBuffer = makeNoiseBuffer(offline, 0.9);
 
       for (let step = 0; step < STEPS; step += 1) {
         const time = step * secondsPerStep + 0.02;
@@ -489,7 +500,7 @@ export function createMusicModule(root) {
 
   function triggerCritterPad({ trackId = 'modA', step = 0, intensity = 1 } = {}) {
     if (!state.critterMode || !ensureAudio() || state.audio.state !== 'running') return;
-    playSine(state.audio, state.master, state.audio.currentTime + 0.01, trackId, step, intensity);
+    playSine(state.audio, state.master, state.audio.currentTime + 0.01, trackId, step, intensity * 0.78);
     renderActiveStep(step);
     window.setTimeout(() => renderActiveStep(-1), 180);
   }
