@@ -32,12 +32,15 @@ const CRITTER_PAD_TRACKS = ['modA', 'modB', 'modC'];
 
 export const trenchWallInscriptions = [
   {
-    text: 'peace and fucking. BELIEVE',
+    text: 'peace and . BELIEVE',
     z: -6,
     side: 'right',
-    width: 6.2,
-    depthOffset: 2.4,
-    opacity: 0.9,
+    zSpan: 3.2,
+    xSpan: 4.8,
+    wallOffset: 3.8,
+    glyphSize: 0.88,
+    depthOffset: 1.82,
+    opacity: 0.86,
   },
 ];
 
@@ -682,21 +685,40 @@ function makeTrenchWallInscriptions(settings) {
 
   trenchWallInscriptions.forEach((entry, index) => {
     if (!entry.text) return;
-    const texture = makeInscriptionTexture(entry.text, entry);
-    const aspect = texture.image.width / texture.image.height;
-    const width = entry.width ?? 4.5;
-    const geometry = new THREE.PlaneGeometry(width, width / aspect);
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      opacity: entry.opacity ?? 0.72,
-      depthWrite: false,
-      side: THREE.DoubleSide,
+    const inscription = new THREE.Group();
+    const chars = [...entry.text.toUpperCase()];
+    const advances = chars.map((char) => {
+      if (char === ' ') return 0.72;
+      if (/[.,'":;!]/.test(char)) return 0.48;
+      return 1;
     });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.renderOrder = 5;
-    mesh.userData = { ...entry, index };
-    group.add(mesh);
+    const totalAdvance = advances.reduce((sum, value) => sum + value, 0);
+    let cursor = 0;
+
+    chars.forEach((char, charIndex) => {
+      const advance = advances[charIndex];
+      const pathT = totalAdvance > 0 ? (cursor + advance * 0.5) / totalAdvance - 0.5 : 0;
+      cursor += advance;
+      if (char === ' ') return;
+
+      const texture = makeInscriptionGlyphTexture(char, entry, charIndex);
+      const glyphSize = entry.glyphSize ?? 0.42;
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        opacity: entry.opacity ?? 0.72,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.renderOrder = 20;
+      sprite.scale.set(glyphSize, glyphSize, 1);
+      sprite.userData = { pathT, charIndex, glyphSize };
+      inscription.add(sprite);
+    });
+
+    inscription.userData = { ...entry, index };
+    group.add(inscription);
   });
 
   updateTrenchWallInscriptions(group, settings);
@@ -704,43 +726,52 @@ function makeTrenchWallInscriptions(settings) {
 }
 
 function updateTrenchWallInscriptions(group, settings) {
-  group.children.forEach((mesh) => {
-    const { z = WORLD.basinZ, side = 'left', depthOffset = 1.5, wallOffset = 6.8 } = mesh.userData;
+  group.children.forEach((inscription) => {
+    const { z = WORLD.basinZ, side = 'left', depthOffset = 1.5, wallOffset = 6.8, zSpan = 6.5, xSpan = 0 } = inscription.userData;
     const sideSign = side === 'right' ? 1 : -1;
-    const wallX = basinCenterX(z) + sideSign * wallOffset;
-    const wallY = elevationAt(wallX, z, settings) * settings.verticalExaggeration;
-    mesh.position.set(wallX - sideSign * 0.08, wallY + depthOffset, z);
-    mesh.lookAt(basinCenterX(z), wallY + depthOffset * 0.72, z - 8);
-    mesh.rotateY(Math.PI);
-    mesh.rotateZ(sideSign * 0.08);
+    inscription.children.forEach((mesh) => {
+      const letterZ = z + mesh.userData.pathT * zSpan;
+      const letterWallOffset = wallOffset + mesh.userData.pathT * xSpan;
+      const wallX = basinCenterX(letterZ) + sideSign * letterWallOffset + Math.sin(letterZ * 0.32) * 0.16;
+      const wallY = elevationAt(wallX, letterZ, settings) * settings.verticalExaggeration;
+      const previousZ = letterZ - 0.28;
+      const nextZ = letterZ + 0.28;
+      const previousX = basinCenterX(previousZ) + sideSign * letterWallOffset;
+      const nextX = basinCenterX(nextZ) + sideSign * letterWallOffset;
+      const previousY = elevationAt(previousX, previousZ, settings) * settings.verticalExaggeration;
+      const nextY = elevationAt(nextX, nextZ, settings) * settings.verticalExaggeration;
+      const contourRoll = Math.atan2(nextY - previousY, nextZ - previousZ) * 0.52;
+
+      mesh.position.set(wallX - sideSign * 0.05, wallY + depthOffset + Math.sin(letterZ * 0.8) * 0.04, letterZ);
+      mesh.material.rotation = contourRoll + sideSign * 0.08;
+      mesh.scale.setScalar(mesh.userData.glyphSize * (1 + Math.sin(letterZ * 0.47) * 0.04));
+    });
   });
 }
 
-function makeInscriptionTexture(text, entry = {}) {
+function makeInscriptionGlyphTexture(char, entry = {}, charIndex = 0) {
   const canvas = document.createElement('canvas');
-  canvas.width = 1024;
+  canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = 'rgba(4, 13, 17, 0.2)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = `900 ${entry.fontSize ?? 104}px Inter, Arial, sans-serif`;
+  ctx.font = `900 ${entry.fontSize ?? 150}px Inter, Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = entry.shadowColor ?? 'rgba(0, 10, 14, 0.72)';
-  ctx.lineWidth = 18;
-  ctx.strokeText(text.toUpperCase(), canvas.width / 2, canvas.height / 2 + 3);
-  ctx.fillStyle = entry.color ?? 'rgba(159, 255, 244, 0.86)';
-  ctx.fillText(text.toUpperCase(), canvas.width / 2, canvas.height / 2);
+  ctx.strokeStyle = entry.shadowColor ?? 'rgba(0, 10, 14, 0.58)';
+  ctx.lineWidth = 14;
+  ctx.strokeText(char, canvas.width / 2, canvas.height / 2 + 6);
+  ctx.fillStyle = entry.color ?? 'rgba(197, 255, 249, 0.94)';
+  ctx.fillText(char, canvas.width / 2, canvas.height / 2 + 2);
 
   ctx.globalCompositeOperation = 'destination-out';
   ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
-  for (let i = 0; i < 90; i += 1) {
-    const x = (i * 97) % canvas.width;
-    const y = (i * 53) % canvas.height;
-    ctx.fillRect(x, y, 6 + (i % 5) * 5, 2 + (i % 3));
+  for (let i = 0; i < 14; i += 1) {
+    const x = (i * 47 + charIndex * 19) % canvas.width;
+    const y = (i * 31 + charIndex * 23) % canvas.height;
+    ctx.fillRect(x, y, 5 + (i % 4) * 4, 2 + (i % 3));
   }
   ctx.globalCompositeOperation = 'source-over';
 

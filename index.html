@@ -117,14 +117,20 @@
             <p>Music module</p>
             <h2>16-step trench sequencer</h2>
           </div>
-          <button class="music-module__play" type="button" aria-pressed="false" data-sequencer-play>Play</button>
+          <div class="music-module__actions">
+            <button class="music-module__play" type="button" aria-pressed="false" data-sequencer-play>Play</button>
+            <button class="music-module__export" type="button" data-sequencer-export>Export</button>
+            <button class="music-module__toggle" type="button" aria-expanded="true" aria-controls="music-module-body" data-sequencer-toggle>Hide</button>
+          </div>
         </div>
-        <div class="music-module__tempo">
-          <span>BPM <strong data-sequencer-bpm-value>104</strong></span>
-          <input type="range" min="70" max="156" value="104" step="1" data-sequencer-bpm aria-label="Sequencer tempo" />
+        <div class="music-module__body" id="music-module-body" data-sequencer-body>
+          <div class="music-module__tempo">
+            <span>BPM <strong data-sequencer-bpm-value>104</strong></span>
+            <input type="range" min="70" max="156" value="104" step="1" data-sequencer-bpm aria-label="Sequencer tempo" />
+          </div>
+          <div class="sequencer" data-sequencer-grid aria-label="Sequencer tracks"></div>
+          <pre class="sequencer-code" data-sequencer-code aria-label="Programmable sequencer pattern examples"></pre>
         </div>
-        <div class="sequencer" data-sequencer-grid aria-label="Sequencer tracks"></div>
-        <pre class="sequencer-code" data-sequencer-code aria-label="Programmable sequencer pattern examples"></pre>
       </section>
       <div class="loading" id="loading">forming trench...</div>
     </main>

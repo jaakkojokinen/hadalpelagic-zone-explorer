@@ -442,7 +442,16 @@ body {
   line-height: 1.1;
 }
 
-.music-module__play {
+.music-module__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.music-module__play,
+.music-module__export,
+.music-module__toggle {
   flex: 0 0 auto;
   min-width: 70px;
   min-height: 34px;
@@ -454,6 +463,18 @@ body {
   font-weight: 900;
   background: #8df7ff;
   cursor: pointer;
+}
+
+.music-module__export {
+  min-width: 76px;
+  color: #d9fffb;
+  background: rgb(255 255 255 / 10%);
+}
+
+.music-module__toggle {
+  min-width: 56px;
+  color: #d9fffb;
+  background: rgb(255 255 255 / 10%);
 }
 
 .music-module__play[aria-pressed="true"] {
@@ -469,6 +490,19 @@ body {
 .music-module :disabled {
   cursor: default;
   opacity: 0.42;
+}
+
+.music-module__body {
+  max-height: 520px;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 220ms ease, opacity 160ms ease;
+}
+
+.music-module--collapsed .music-module__body {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .music-module__tempo {
@@ -719,6 +753,18 @@ body {
 
   .music-module__header h2 {
     font-size: 0.9rem;
+  }
+
+  .music-module__actions {
+    gap: 4px;
+  }
+
+  .music-module__play,
+  .music-module__export,
+  .music-module__toggle {
+    min-width: 58px;
+    padding: 0 8px;
+    font-size: 0.7rem;
   }
 
   .sequencer__row {

@@ -4,6 +4,8 @@ const SCHEDULE_AHEAD_SECONDS = 0.12;
 const PAD_ROOT_FREQUENCY = 110;
 const PAD_SCALE_NAME = 'hadal minor';
 const PAD_SCALE_DEGREES = [0, 2, 3, 5, 7, 10, 12, 14, 15, 17, 19, 22, 24, 26, 27, 29];
+const EXPORT_SAMPLE_RATE = 44100;
+const EXPORT_EXTRA_TAIL_SECONDS = 4.2;
 
 export const DEFAULT_PATTERNS = {
   kick: 'x---x---x---x---',
@@ -162,6 +164,68 @@ function playSine(audio, destination, time, id, step, intensity = 1) {
   osc.stop(time + 3.8);
 }
 
+function encodeWav(audioBuffer) {
+  const channelCount = audioBuffer.numberOfChannels;
+  const bytesPerSample = 2;
+  const blockAlign = channelCount * bytesPerSample;
+  const dataLength = audioBuffer.length * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+  const channels = Array.from({ length: channelCount }, (_, index) => audioBuffer.getChannelData(index));
+  let offset = 0;
+
+  function writeString(value) {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset, value.charCodeAt(i));
+      offset += 1;
+    }
+  }
+
+  writeString('RIFF');
+  view.setUint32(offset, 36 + dataLength, true);
+  offset += 4;
+  writeString('WAVE');
+  writeString('fmt ');
+  view.setUint32(offset, 16, true);
+  offset += 4;
+  view.setUint16(offset, 1, true);
+  offset += 2;
+  view.setUint16(offset, channelCount, true);
+  offset += 2;
+  view.setUint32(offset, audioBuffer.sampleRate, true);
+  offset += 4;
+  view.setUint32(offset, audioBuffer.sampleRate * blockAlign, true);
+  offset += 4;
+  view.setUint16(offset, blockAlign, true);
+  offset += 2;
+  view.setUint16(offset, bytesPerSample * 8, true);
+  offset += 2;
+  writeString('data');
+  view.setUint32(offset, dataLength, true);
+  offset += 4;
+
+  for (let i = 0; i < audioBuffer.length; i += 1) {
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += bytesPerSample;
+    }
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function createMusicModule(root) {
   if (!root) return null;
 
@@ -177,12 +241,17 @@ export function createMusicModule(root) {
     timer: null,
     audioError: '',
     critterMode: false,
+    isCollapsed: false,
+    isExporting: false,
     restorePlaying: false,
     patterns: Object.fromEntries(Object.entries(DEFAULT_PATTERNS).map(([key, value]) => [key, normalizePattern(value)])),
   };
 
   const els = {
     play: root.querySelector('[data-sequencer-play]'),
+    export: root.querySelector('[data-sequencer-export]'),
+    toggle: root.querySelector('[data-sequencer-toggle]'),
+    body: root.querySelector('[data-sequencer-body]'),
     bpm: root.querySelector('[data-sequencer-bpm]'),
     grid: root.querySelector('[data-sequencer-grid]'),
     code: root.querySelector('[data-sequencer-code]'),
@@ -316,6 +385,7 @@ export function createMusicModule(root) {
 
   function setControlsDisabled(disabled) {
     els.play.disabled = disabled;
+    els.export.disabled = disabled;
     els.bpm.disabled = disabled;
     stepButtons.forEach((buttons) => {
       buttons.forEach((button) => {
@@ -350,6 +420,70 @@ export function createMusicModule(root) {
     if (state.restorePlaying) {
       state.restorePlaying = false;
       start();
+    }
+  }
+
+  function setCollapsed(collapsed) {
+    state.isCollapsed = collapsed;
+    root.classList.toggle('music-module--collapsed', collapsed);
+    els.toggle.textContent = collapsed ? 'Show' : 'Hide';
+    els.toggle.setAttribute('aria-expanded', String(!collapsed));
+    els.body.setAttribute('aria-hidden', String(collapsed));
+  }
+
+  function toggleCollapsed() {
+    setCollapsed(!state.isCollapsed);
+  }
+
+  async function exportSequence() {
+    if (state.isExporting) return;
+    const OfflineAudioContextClass = window.OfflineAudioContext ?? window.webkitOfflineAudioContext;
+    if (!OfflineAudioContextClass) {
+      state.audioError = 'Offline audio export is not available in this browser.';
+      els.export.textContent = 'No export';
+      window.setTimeout(() => { els.export.textContent = 'Export'; }, 1400);
+      return;
+    }
+
+    state.isExporting = true;
+    els.export.disabled = true;
+    els.export.textContent = 'Rendering';
+
+    try {
+      const secondsPerStep = 60 / state.bpm / 4;
+      const loopDuration = secondsPerStep * STEPS;
+      const renderDuration = loopDuration + EXPORT_EXTRA_TAIL_SECONDS;
+      const offline = new OfflineAudioContextClass(2, Math.ceil(renderDuration * EXPORT_SAMPLE_RATE), EXPORT_SAMPLE_RATE);
+      const master = offline.createGain();
+      master.gain.value = 0.74;
+      master.connect(offline.destination);
+      const noiseBuffer = makeNoiseBuffer(offline, 0.35);
+
+      for (let step = 0; step < STEPS; step += 1) {
+        const time = step * secondsPerStep + 0.02;
+        TRACKS.forEach((track) => {
+          if (state.patterns[track.id][step] !== 'x') return;
+          if (track.id === 'kick') playKick(offline, master, time);
+          if (track.id === 'snare') playSnare(offline, master, time, noiseBuffer);
+          if (track.id === 'hihats') playHat(offline, master, time, noiseBuffer);
+          if (track.id === 'tom') playTom(offline, master, time);
+          if (track.type === 'sine') playSine(offline, master, time, track.id, step);
+        });
+      }
+
+      const rendered = await offline.startRendering();
+      const blob = encodeWav(rendered);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      downloadBlob(blob, `trench-sequence-${state.bpm}bpm-${timestamp}.wav`);
+      els.export.textContent = 'Exported';
+      window.setTimeout(() => { els.export.textContent = 'Export'; }, 1400);
+    } catch (error) {
+      state.audioError = error instanceof Error ? error.message : 'Unable to export sequence.';
+      els.export.textContent = 'Failed';
+      window.setTimeout(() => { els.export.textContent = 'Export'; }, 1400);
+    } finally {
+      state.isExporting = false;
+      els.export.disabled = state.critterMode;
     }
   }
 
@@ -421,6 +555,13 @@ trenchSequencer.setPattern('modC', '${state.patterns.modC}');`;
     }
   });
 
+  els.export.addEventListener('click', () => {
+    if (state.critterMode) return;
+    exportSequence();
+  });
+
+  els.toggle.addEventListener('click', toggleCollapsed);
+
   els.bpm.addEventListener('input', () => {
     state.bpm = Number(els.bpm.value);
     root.querySelector('[data-sequencer-bpm-value]').textContent = state.bpm;
@@ -450,8 +591,12 @@ trenchSequencer.setPattern('modC', '${state.patterns.modC}');`;
     setPattern,
     clearPattern,
     setPatterns,
+    collapse: () => setCollapsed(true),
+    expand: () => setCollapsed(false),
+    toggleCollapsed,
     setCritterMode,
     triggerCritterPad,
+    exportSequence,
     start,
     stop,
   };
